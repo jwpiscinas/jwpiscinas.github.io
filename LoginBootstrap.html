@@ -1,0 +1,1924 @@
+<script>
+(function() {
+  window.JW = window.JW || {};
+
+  JW.usuarioLogado = JW.usuarioLogado || null;
+  JW.produtosCache = [];
+  JW.manuaisCache = [];
+  JW.notificacoes = [];
+  JW.produtoAtual = null;
+  JW.orcamentoAnexo = null;
+  JW.relatorioDados = null;
+  JW.navLoading = false;
+  JW.navSeq = 0;
+  JW.produtoFiltro = "Todos";
+  JW.manualFiltro = "Todos";
+  JW.chatClienteAtual = "";
+  JW.historicoFiltro = "Todos";
+  JW.historicoItens = [];
+  JW.relatorioSelecionado = "";
+
+  JW.escapeHTML = function(valor) {
+    if (valor === null || valor === undefined) return "";
+    return String(valor)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  };
+
+  JW.escapeAttr = JW.escapeHTML;
+
+  JW.attrJs = function(valor) {
+    return JW.escapeAttr(JSON.stringify(String(valor === null || valor === undefined ? "" : valor)));
+  };
+
+  JW.formatarMoeda = function(valor) {
+    var numero = typeof valor === "number" ? valor : parseFloat(String(valor || "0").replace(/\./g, "").replace(",", "."));
+    if (isNaN(numero)) numero = 0;
+    return "R$ " + numero.toFixed(2).replace(".", ",");
+  };
+
+  JW.numero = function(valor) {
+    if (typeof valor === "number") return valor;
+    if (!valor) return 0;
+    var texto = String(valor).replace(/\s/g, "").replace("R$", "");
+    if (texto.indexOf(",") !== -1) texto = texto.replace(/\./g, "").replace(",", ".");
+    var numero = parseFloat(texto);
+    return isNaN(numero) ? 0 : numero;
+  };
+
+  JW.precoAtivoProduto = function(produto) {
+    var preco = JW.numero(produto && produto.preco);
+    var desconto = JW.numero(produto && produto.precoComDesconto);
+    return desconto > 0 ? desconto : preco;
+  };
+
+  JW.mostrarMensagem = function(elemento, mensagem, tipo) {
+    var el = document.getElementById(elemento);
+    if (!el) {
+      JW.toast(mensagem, tipo);
+      return;
+    }
+    el.textContent = mensagem;
+    el.className = "alert alert-" + (tipo || "success");
+    el.style.display = "block";
+    el.classList.remove("d-none");
+  };
+
+  JW.toast = function(mensagem, tipo) {
+    var container = document.getElementById("jwToastContainer");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "jwToastContainer";
+      container.style.position = "fixed";
+      container.style.right = "18px";
+      container.style.bottom = "18px";
+      container.style.zIndex = "9999";
+      container.style.display = "flex";
+      container.style.flexDirection = "column";
+      container.style.gap = "10px";
+      document.body.appendChild(container);
+    }
+
+    var item = document.createElement("div");
+    item.className = "alert alert-" + (tipo || "success");
+    item.style.boxShadow = "0 10px 24px rgba(15,23,42,.18)";
+    item.style.margin = "0";
+    item.style.maxWidth = "360px";
+    item.textContent = mensagem;
+    container.appendChild(item);
+
+    window.setTimeout(function() {
+      if (item && item.parentNode) item.parentNode.removeChild(item);
+    }, 5200);
+  };
+
+  JW.mostrarLoading = function(mensagem) {
+    var loadingText = document.getElementById("loadingText");
+    var overlay = document.getElementById("loadingOverlay");
+    if (loadingText) loadingText.textContent = mensagem || "Carregando...";
+    if (overlay) overlay.classList.add("active");
+  };
+
+  JW.esconderLoading = function() {
+    var overlay = document.getElementById("loadingOverlay");
+    if (overlay) overlay.classList.remove("active");
+  };
+
+  JW.chamarGoogleScript = function(funcao) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function(resolve, reject) {
+      if (!window.google || !google.script || !google.script.run) {
+        reject(new Error("google.script.run nao esta disponivel. Abra pela URL do Web App implantado."));
+        return;
+      }
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(function(error) {
+          reject(error || new Error("Falha ao chamar " + funcao));
+        })
+        [funcao].apply(null, args);
+    });
+  };
+
+  JW.setTitulo = function(titulo) {
+    var el = document.getElementById("currentPageTitle");
+    if (el) el.textContent = titulo || "Inicio";
+  };
+
+  JW.renderMain = function(html) {
+    var main = document.getElementById("mainContent");
+    if (main) main.innerHTML = html;
+  };
+
+  JW.renderCarregando = function(texto) {
+    JW.renderMain(
+      '<div class="card text-center">' +
+        '<div class="loading-spinner-modern" style="margin:20px auto;"></div>' +
+        '<p class="text-muted">' + JW.escapeHTML(texto || "Carregando...") + '</p>' +
+      '</div>'
+    );
+  };
+
+  JW.abrirModal = function(id) {
+    var backdrop = document.getElementById("modalBackdrop");
+    var modal = document.getElementById(id);
+    if (backdrop) {
+      backdrop.classList.remove("d-none");
+      backdrop.classList.add("active");
+    }
+    if (modal) {
+      modal.classList.remove("d-none");
+      modal.classList.add("active");
+    }
+  };
+
+  JW.fecharModal = function(id) {
+    var backdrop = document.getElementById("modalBackdrop");
+    var modal = document.getElementById(id);
+    if (modal) {
+      modal.classList.add("d-none");
+      modal.classList.remove("active");
+    }
+    if (backdrop) {
+      backdrop.classList.add("d-none");
+      backdrop.classList.remove("active");
+    }
+  };
+
+  JW.abrirModalSistema = function(titulo, corpoHtml, rodapeHtml) {
+    var modal = document.getElementById("jwSystemModal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "jwSystemModal";
+      modal.className = "modal d-none";
+      modal.innerHTML = '<div class="modal-header"><h3 id="jwSystemModalTitle"></h3><button class="modal-close" onclick="JW.fecharModalSistema()">&times;</button></div><div class="modal-body" id="jwSystemModalBody"></div>';
+      document.body.appendChild(modal);
+    }
+    var title = document.getElementById("jwSystemModalTitle");
+    var body = document.getElementById("jwSystemModalBody");
+    if (title) title.innerHTML = titulo || "";
+    if (body) body.innerHTML = (corpoHtml || "") + (rodapeHtml || "");
+    modal.classList.toggle("modal-wide", String(corpoHtml || "").indexOf("profile-modal-body") !== -1 || String(corpoHtml || "").indexOf("chat-history") !== -1);
+    var backdrop = document.getElementById("modalBackdrop");
+    if (backdrop) {
+      backdrop.classList.remove("d-none");
+      backdrop.classList.add("active");
+    }
+    modal.classList.remove("d-none");
+    modal.classList.add("active");
+  };
+
+  JW.fecharModalSistema = function() {
+    var modal = document.getElementById("jwSystemModal");
+    var backdrop = document.getElementById("modalBackdrop");
+    if (modal) {
+      modal.classList.add("d-none");
+      modal.classList.remove("active");
+    }
+    if (backdrop) {
+      backdrop.classList.add("d-none");
+      backdrop.classList.remove("active");
+    }
+  };
+
+  JW.formatarTelefone = function(input) {
+    if (!input) return;
+    var numeros = input.value.replace(/\D/g, "").slice(0, 11);
+    if (numeros.length > 10) {
+      input.value = numeros.replace(/^(\d{2})(\d{5})(\d{0,4}).*/, "($1) $2-$3");
+    } else if (numeros.length > 6) {
+      input.value = numeros.replace(/^(\d{2})(\d{4})(\d{0,4}).*/, "($1) $2-$3");
+    } else if (numeros.length > 2) {
+      input.value = numeros.replace(/^(\d{2})(\d{0,5}).*/, "($1) $2");
+    } else {
+      input.value = numeros;
+    }
+  };
+
+  JW.mostrarLoginForm = function() {
+    var login = document.getElementById("loginForm");
+    var register = document.getElementById("registerForm");
+    var tabLogin = document.getElementById("tabLoginBtn");
+    var tabRegister = document.getElementById("tabRegisterBtn");
+    if (login) login.classList.remove("d-none");
+    if (register) register.classList.add("d-none");
+    if (tabLogin) tabLogin.classList.add("active");
+    if (tabRegister) tabRegister.classList.remove("active");
+  };
+
+  JW.mostrarRegisterForm = function() {
+    var login = document.getElementById("loginForm");
+    var register = document.getElementById("registerForm");
+    var tabLogin = document.getElementById("tabLoginBtn");
+    var tabRegister = document.getElementById("tabRegisterBtn");
+    if (login) login.classList.add("d-none");
+    if (register) register.classList.remove("d-none");
+    if (tabLogin) tabLogin.classList.remove("active");
+    if (tabRegister) tabRegister.classList.add("active");
+  };
+
+  JW.fazerLogin = async function() {
+    var usuarioEl = document.getElementById("loginUsuario");
+    var senhaEl = document.getElementById("loginSenha");
+    var btnLogin = document.getElementById("btnLogin");
+    var usuario = usuarioEl ? usuarioEl.value.trim() : "";
+    var senha = senhaEl ? senhaEl.value : "";
+
+    if (!usuario || !senha) {
+      JW.mostrarMensagem("loginMessage", "Preencha usuario e senha.", "error");
+      return;
+    }
+
+    JW.setLoginButtonLoading(true);
+    try {
+      var resultado = await JW.chamarGoogleScript("verificarLogin", { usuario: usuario, senha: senha });
+      JW.setLoginButtonLoading(false);
+
+      if (!resultado || !resultado.success) {
+        JW.mostrarMensagem("loginMessage", "Erro ao fazer login: " + (resultado && resultado.message ? resultado.message : "resposta invalida"), "error");
+        return;
+      }
+
+      JW.usuarioLogado = resultado;
+      JW.entrarNoSistema();
+    } catch (error) {
+      JW.setLoginButtonLoading(false);
+      JW.mostrarMensagem("loginMessage", "Erro ao chamar o servidor: " + (error && error.message ? error.message : error), "error");
+    }
+  };
+
+  JW.setLoginButtonLoading = function(loading) {
+    var btn = document.getElementById("btnLogin");
+    if (!btn) return;
+    if (loading) {
+      btn.dataset.originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.classList.add("btn-login-loading");
+      btn.innerHTML = '<span class="mini-spinner"></span> Entrando no sistema...';
+    } else {
+      btn.disabled = false;
+      btn.classList.remove("btn-login-loading");
+      btn.innerHTML = btn.dataset.originalText || "Entrar";
+    }
+  };
+
+  JW.fazerCadastro = async function() {
+    var dados = {
+      usuario: (document.getElementById("registerUsuario") || {}).value || "",
+      email: (document.getElementById("registerEmail") || {}).value || "",
+      telefone: (document.getElementById("registerTelefone") || {}).value || "",
+      bairro: (document.getElementById("registerBairro") || {}).value || "",
+      endereco: (document.getElementById("registerEndereco") || {}).value || "",
+      senha: (document.getElementById("registerSenha") || {}).value || "",
+      confirmacaoSenha: (document.getElementById("registerConfirmacaoSenha") || {}).value || ""
+    };
+
+    JW.mostrarLoading("Criando cadastro...");
+    try {
+      var resultado = await JW.chamarGoogleScript("cadastrarUsuario", dados);
+      JW.esconderLoading();
+      JW.mostrarMensagem("registerMessage", resultado && resultado.message ? resultado.message : "Cadastro processado.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) JW.mostrarLoginForm();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.mostrarMensagem("registerMessage", "Erro ao cadastrar: " + (error.message || error), "error");
+    }
+  };
+
+  JW.abrirRecuperacaoSenha = function() {
+    JW.recoveryData = { email: "", codigo: "" };
+    JW.mostrarRecoveryStep(1);
+    var msg = document.getElementById("recoveryMessage");
+    if (msg) {
+      msg.classList.add("d-none");
+      msg.style.display = "none";
+    }
+    JW.abrirModal("modalRecuperacao");
+  };
+
+  JW.mostrarRecoveryStep = function(step) {
+    var steps = [document.getElementById("step1"), document.getElementById("step2"), document.getElementById("step3")];
+    for (var i = 0; i < steps.length; i++) {
+      if (!steps[i]) continue;
+      if (i === step - 1) {
+        steps[i].classList.remove("d-none");
+        steps[i].classList.add("active");
+      } else {
+        steps[i].classList.add("d-none");
+        steps[i].classList.remove("active");
+      }
+    }
+
+    if (step === 2) {
+      var container = document.getElementById("codeInputsContainer");
+      if (container) {
+        container.innerHTML = '<input id="codigoRecuperacaoUnico" class="form-input" type="text" inputmode="numeric" maxlength="6" placeholder="000000" style="text-align:center;font-size:1.4rem;letter-spacing:.4rem;">';
+      }
+    }
+  };
+
+  JW.solicitarCodigoRecuperacao = async function() {
+    var email = (document.getElementById("recoveryEmail") || {}).value || "";
+    if (!email.trim()) {
+      JW.mostrarMensagem("recoveryMessage", "Digite seu email, usuario ou telefone.", "error");
+      return;
+    }
+
+    JW.mostrarLoading("Enviando codigo...");
+    try {
+      var resultado = await JW.chamarGoogleScript("solicitarRecuperacaoSenha", email.trim());
+      JW.esconderLoading();
+      JW.mostrarMensagem("recoveryMessage", (resultado && resultado.message ? resultado.message : "Codigo enviado.") + " Confira tambem a caixa de spam.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) {
+        JW.recoveryData.email = resultado.email || email.trim();
+        JW.mostrarRecoveryStep(2);
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.mostrarMensagem("recoveryMessage", "Erro ao enviar codigo: " + (error.message || error), "error");
+    }
+  };
+
+  JW.verificarCodigoRecuperacao = async function() {
+    var codigo = (document.getElementById("codigoRecuperacaoUnico") || {}).value || "";
+    if (!codigo.trim()) {
+      JW.mostrarMensagem("recoveryMessage", "Digite o codigo recebido.", "error");
+      return;
+    }
+
+    JW.mostrarLoading("Verificando codigo...");
+    try {
+      var resultado = await JW.chamarGoogleScript("verificarCodigoRecuperacao", JW.recoveryData.email, codigo.trim());
+      JW.esconderLoading();
+      JW.mostrarMensagem("recoveryMessage", resultado && resultado.message ? resultado.message : "Codigo verificado.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) {
+        JW.recoveryData.codigo = codigo.trim();
+        JW.mostrarRecoveryStep(3);
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.mostrarMensagem("recoveryMessage", "Erro ao verificar codigo: " + (error.message || error), "error");
+    }
+  };
+
+  JW.reenviarCodigo = function() {
+    var emailInput = document.getElementById("recoveryEmail");
+    if (emailInput && JW.recoveryData && JW.recoveryData.email) emailInput.value = JW.recoveryData.email;
+    JW.mostrarRecoveryStep(1);
+  };
+
+  JW.redefinirSenha = async function() {
+    var senha = (document.getElementById("novaSenha") || {}).value || "";
+    var confirmacao = (document.getElementById("confirmarNovaSenha") || {}).value || "";
+
+    JW.mostrarLoading("Redefinindo senha...");
+    try {
+      var resultado = await JW.chamarGoogleScript("redefinirSenha", JW.recoveryData.email, JW.recoveryData.codigo, senha, confirmacao);
+      JW.esconderLoading();
+      JW.mostrarMensagem("recoveryMessage", resultado && resultado.message ? resultado.message : "Senha redefinida.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) {
+        window.setTimeout(function() {
+          JW.fecharModal("modalRecuperacao");
+        }, 900);
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.mostrarMensagem("recoveryMessage", "Erro ao redefinir senha: " + (error.message || error), "error");
+    }
+  };
+
+  JW.entrarNoSistema = function() {
+    var loginScreen = document.getElementById("loginScreen");
+    var mainApp = document.getElementById("mainApp");
+    var sidebarUserName = document.getElementById("sidebarUserName");
+    var sidebarUserRole = document.getElementById("sidebarUserRole");
+
+    document.body.classList.add("logged-in");
+    document.body.classList.toggle("admin-mode", JW.isAdmin());
+    if (loginScreen) loginScreen.classList.add("d-none");
+    if (mainApp) mainApp.classList.remove("d-none");
+    if (sidebarUserName) sidebarUserName.textContent = JW.usuarioLogado.usuario || JW.usuarioLogado.email || "Usuario";
+    if (sidebarUserRole) sidebarUserRole.textContent = JW.usuarioLogado.tipo || "Cliente";
+
+    JW.carregarMenuDinamico();
+    JW.prepararSidebarControls();
+    JW.renderChatWidget();
+    JW.carregarNotificacoes();
+    JW.fecharNotificacoes();
+    JW.abrirTab("inicio");
+  };
+
+  JW.isAdmin = function() {
+    return JW.usuarioLogado && JW.usuarioLogado.tipo === "Administrador";
+  };
+
+  JW.carregarMenuDinamico = function() {
+    var menu = document.getElementById("dynamicMenu");
+    if (!menu) return;
+    var html = ""
+      + '<a href="#" class="nav-item" data-tab="inicio" title="' + (JW.isAdmin() ? "Dashboard" : "Inicio") + '"><i class="fas fa-tachometer-alt"></i><span>' + (JW.isAdmin() ? "Dashboard" : "Inicio") + '</span></a>'
+      + '<a href="#" class="nav-item" data-tab="solicitar-orcamento" title="Orcamentos"><i class="fas fa-file-invoice-dollar"></i><span>Orcamentos</span></a>'
+      + '<a href="#" class="nav-item" data-tab="produtos" title="Produtos"><i class="fas fa-shopping-cart"></i><span>Produtos</span></a>'
+      + '<a href="#" class="nav-item" data-tab="historico" title="Historico"><i class="fas fa-history"></i><span>Historico</span></a>'
+      + '<a href="#" class="nav-item" data-tab="manuais" title="Manuais"><i class="fas fa-book"></i><span>Manuais</span></a>';
+    if (JW.isAdmin()) {
+      html += '<a href="#" class="nav-item" data-tab="ordem-servico" title="Pendencias"><i class="fas fa-clipboard-list"></i><span>Pendencias</span></a>'
+        + '<a href="#" class="nav-item" data-tab="relatorios" title="Relatorios"><i class="fas fa-chart-line"></i><span>Relatorios</span></a>'
+        + '<a href="#" class="nav-item" data-tab="mensagens" title="Mensagens diretas"><i class="fas fa-comments"></i><span>Mensagens diretas</span></a>';
+    }
+    menu.innerHTML = html;
+
+    var items = menu.querySelectorAll(".nav-item");
+    for (var i = 0; i < items.length; i++) {
+      items[i].addEventListener("click", function(e) {
+        e.preventDefault();
+        JW.abrirTab(this.getAttribute("data-tab"));
+      });
+    }
+  };
+
+  JW.prepararSidebarControls = function() {
+    var container = document.querySelector(".logo-container");
+    if (container && !document.getElementById("sidebarCollapseBtn")) {
+      var btn = document.createElement("button");
+      btn.id = "sidebarCollapseBtn";
+      btn.className = "sidebar-collapse-btn";
+      btn.title = "Minimizar menu";
+      btn.innerHTML = '<i class="fas fa-chevron-left"></i>';
+      btn.addEventListener("click", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        JW.toggleSidebarCollapsed();
+      });
+      container.appendChild(btn);
+    }
+    var userInfo = document.querySelector(".user-info");
+    if (userInfo && !userInfo.querySelector(".profile-sidebar-icon")) {
+      var profileIcon = document.createElement("div");
+      profileIcon.className = "profile-sidebar-icon";
+      profileIcon.title = "Abrir perfil";
+      profileIcon.innerHTML = '<i class="fas fa-user-circle"></i>';
+      userInfo.insertBefore(profileIcon, userInfo.firstChild);
+    }
+  };
+
+  JW.toggleSidebarCollapsed = function() {
+    document.body.classList.toggle("sidebar-collapsed");
+    var icon = document.querySelector("#sidebarCollapseBtn i");
+    if (icon) {
+      icon.className = document.body.classList.contains("sidebar-collapsed") ? "fas fa-chevron-right" : "fas fa-chevron-left";
+    }
+  };
+
+  JW.marcarMenuAtivo = function(tab) {
+    var items = document.querySelectorAll(".nav-item");
+    for (var i = 0; i < items.length; i++) {
+      items[i].classList.toggle("active", items[i].getAttribute("data-tab") === tab);
+    }
+  };
+
+  JW.abrirTab = async function(tab) {
+    if (JW.navLoading) return;
+    var partes = String(tab || "inicio").split("?");
+    var tabBase = partes[0];
+    var query = partes[1] || "";
+    var navSeq = ++JW.navSeq;
+    JW.navLoading = true;
+    document.body.classList.add("nav-busy");
+    JW.fecharNotificacoes();
+    JW.marcarMenuAtivo(tabBase);
+    JW.renderCarregando("Carregando conteudo...");
+
+    try {
+      if (tabBase === "inicio") await JW.carregarInicio();
+      else if (tabBase === "solicitar-orcamento") JW.renderSolicitarOrcamento();
+      else if (tabBase === "produtos") await JW.carregarProdutos(JW.getQueryParam(query, "produto"));
+      else if (tabBase === "historico") await JW.carregarHistorico();
+      else if (tabBase === "manuais") await JW.carregarManuais();
+      else if (tabBase === "ordem-servico") await JW.carregarPendencias();
+      else if (tabBase === "relatorios") await JW.carregarRelatorios();
+      else if (tabBase === "mensagens" || tabBase === "admin") await JW.carregarMensagensDiretas();
+      else JW.renderMain('<div class="card"><h3>Modulo indisponivel</h3></div>');
+    } catch (error) {
+      if (navSeq === JW.navSeq) JW.renderMain('<div class="card text-center"><h3>Erro ao carregar</h3><p style="color:red;">' + JW.escapeHTML(error.message || error) + '</p><button class="btn btn-primary" onclick="JW.abrirTab(' + JW.attrJs(tabBase) + ')">Tentar novamente</button></div>');
+    } finally {
+      if (navSeq === JW.navSeq) {
+        JW.navLoading = false;
+        document.body.classList.remove("nav-busy");
+      }
+    }
+  };
+
+  JW.getQueryParam = function(query, nome) {
+    var partes = String(query || "").split("&");
+    for (var i = 0; i < partes.length; i++) {
+      var kv = partes[i].split("=");
+      if (decodeURIComponent(kv[0] || "") === nome) return decodeURIComponent(kv[1] || "");
+    }
+    return "";
+  };
+
+  JW.carregarInicio = async function() {
+    if (JW.isAdmin()) {
+      JW.setTitulo("Dashboard");
+      var d = await JW.chamarGoogleScript("getDashboardAdminV3");
+      d = d || {};
+      var receber = d && d.aReceber ? d.aReceber : { total: 0, totalFormatado: "R$ 0,00" };
+      JW.renderMain(
+        '<section class="page-hero" style="margin-bottom:1.25rem;">' +
+          '<h2 style="margin:0 0 .35rem;">Dashboard administrativo</h2>' +
+          '<p class="text-muted" style="margin:0;">Bem-vindo ao painel de gestao, ' + JW.escapeHTML(JW.usuarioLogado.usuario || "admin") + '.</p>' +
+        '</section>' +
+        '<div class="dashboard-stats">' +
+          JW.cardMetrica("Clientes ativos", d.clientesAtivos || 0, "fas fa-users", "JW.abrirDetalheDashboard('clientes')", "metric-click metric-clientes") +
+          JW.cardMetrica("Ordens ativas", d.ordensAtivas || 0, "fas fa-clipboard-list", "JW.abrirDetalheDashboard('ordens')", "metric-click metric-ordens") +
+          JW.cardMetrica("Tecnicos", d.tecnicosAtivos || 0, "fas fa-user-cog", "JW.abrirDetalheDashboard('tecnicos')", "metric-click metric-tecnicos") +
+          JW.cardMetrica("A receber", receber.totalFormatado || JW.formatarMoeda(receber.total || 0), "fas fa-money-bill-wave", "JW.abrirDetalheDashboard('receber')", "metric-click metric-receber") +
+        '</div>' +
+        JW.renderDashboardGraficos(d)
+      );
+    } else {
+      JW.setTitulo("Inicio");
+      JW.renderMain(
+        '<section class="client-welcome">' +
+          '<div class="client-welcome-mark"><i class="fas fa-water"></i></div>' +
+          '<h2>Bem-vindo, ' + JW.escapeHTML(JW.usuarioLogado.usuario || "cliente") + '.</h2>' +
+          '<p>Este e seu espaco para cuidar da piscina com mais tranquilidade. Por aqui voce acompanha solicitacoes, consulta compras, acessa manuais dos produtos e recebe avisos importantes da JW Piscinas.</p>' +
+          '<p>Quando precisar de atendimento, envie um orcamento com descricao e anexo. Nossa equipe retorna com uma proposta por e-mail ou WhatsApp e todo o andamento fica registrado no seu historico.</p>' +
+          '<div class="client-capabilities">' +
+            '<span><i class="fas fa-file-invoice-dollar"></i> Orcamentos acompanhados</span>' +
+            '<span><i class="fas fa-shopping-cart"></i> Loja com estoque atualizado</span>' +
+            '<span><i class="fas fa-book"></i> Manuais e videos</span>' +
+            '<span><i class="fas fa-comments"></i> Contato direto com o admin</span>' +
+          '</div>' +
+        '</section>'
+      );
+    }
+  };
+
+  JW.dashboardDados = null;
+
+  JW.renderDashboardGraficos = function(d) {
+    JW.dashboardDados = d || {};
+    var central = d.central || {};
+    var receber = d.aReceber || {};
+    var orc = (central.orcamentosPendentes || []).length;
+    var comp = (central.comprasPendentes || []).length;
+    var totalPend = Math.max(orc + comp, 1);
+    var orcPct = Math.round((orc / totalPend) * 100);
+    var compPct = 100 - orcPct;
+    var comprasValor = receber.totalComprasNaoPagas || 0;
+    var servicosValor = receber.totalServicosNaoPagos || 0;
+    var maxValor = Math.max(comprasValor, servicosValor, 1);
+
+    return '<div id="dashboardDetail" class="dashboard-detail-panel d-none"></div>' +
+      '<div class="dashboard-grid-analytics">' +
+        '<div class="analytics-panel">' +
+          '<h3>Resumo operacional</h3>' +
+          '<div class="mini-summary-grid">' +
+            '<div><strong>' + JW.escapeHTML(d.telefonesAutorizados || 0) + '</strong><span>Telefones autorizados</span></div>' +
+            '<div><strong>' + JW.escapeHTML(orc) + '</strong><span>Orcamentos em aberto</span></div>' +
+            '<div><strong>' + JW.escapeHTML(comp) + '</strong><span>Compras em andamento</span></div>' +
+            '<div><strong>' + JW.escapeHTML((receber.totalFormatado || JW.formatarMoeda(receber.total || 0))) + '</strong><span>Recebiveis</span></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="analytics-panel">' +
+          '<h3>Pendencias por tipo</h3>' +
+          '<div class="pie-row"><div class="css-pie" style="background:conic-gradient(#2563eb 0 ' + orcPct + '%, #10b981 ' + orcPct + '% 100%);"></div>' +
+          '<div class="chart-legend"><span><i style="background:#2563eb"></i>Orcamentos ' + orc + '</span><span><i style="background:#10b981"></i>Compras ' + comp + '</span></div></div>' +
+        '</div>' +
+        '<div class="analytics-panel">' +
+          '<h3>A receber por origem</h3>' +
+          '<div class="bar-line"><span>Produtos</span><div><b style="width:' + Math.round((comprasValor / maxValor) * 100) + '%"></b></div><strong>' + JW.formatarMoeda(comprasValor) + '</strong></div>' +
+          '<div class="bar-line"><span>Servicos</span><div><b style="width:' + Math.round((servicosValor / maxValor) * 100) + '%"></b></div><strong>' + JW.formatarMoeda(servicosValor) + '</strong></div>' +
+        '</div>' +
+      '</div>';
+  };
+
+  JW.abrirDetalheDashboard = function(tipo) {
+    var d = JW.dashboardDados || {};
+    var painel = document.getElementById("dashboardDetail");
+    if (!painel) return;
+    var html = "";
+    if (tipo === "clientes") html = '<h3>Clientes ativos</h3>' + JW.renderTabelaSimples(((d.cadastros || {}).clientes || []), ["usuario", "email", "telefone", "bairro", "endereco", "status"]);
+    else if (tipo === "ordens") html = '<h3>Ordens ativas</h3>' + JW.renderOrcamentosAdmin(((d.central || {}).orcamentosPendentes || [])) + JW.renderComprasAdmin(((d.central || {}).comprasPendentes || []));
+    else if (tipo === "tecnicos") html = '<h3>Tecnicos ativos</h3>' + JW.renderTabelaSimples(d.tecnicos || [], ["nome", "telefone", "status"]);
+    else if (tipo === "receber") {
+      var rec = d.aReceber || {};
+      html = '<h3>A receber</h3>' +
+        '<h4>Compras nao pagas</h4>' + JW.renderTabelaSimples(rec.comprasNaoPagas || [], ["id", "cliente", "valorTotalFormatado", "statusPagamento", "statusEntrega"]) +
+        '<h4>Pagamentos pendentes</h4>' + JW.renderTabelaSimples(rec.pagamentosPendentes || [], ["id", "cliente", "tipo", "valorFormatado", "status"]) +
+        '<h4>Servicos nao pagos</h4>' + JW.renderTabelaSimples(rec.servicosNaoPagos || [], ["id", "cliente", "tipo", "valorFormatado", "status"]);
+    }
+    painel.innerHTML = html;
+    painel.classList.remove("d-none");
+  };
+
+  JW.cardMetrica = function(titulo, valor, icone, acao, classeExtra) {
+    var tag = acao ? "button" : "div";
+    return '<' + tag + ' class="dashboard-card ' + JW.escapeAttr(classeExtra || "") + '" ' + (acao ? 'style="border:0;cursor:pointer;" onclick="' + JW.escapeAttr(acao) + '"' : "") + '>' +
+      '<i class="' + JW.escapeAttr(icone || "fas fa-chart-line") + '"></i>' +
+      '<div class="dashboard-card-value">' + JW.escapeHTML(valor) + '</div>' +
+      '<div class="text-muted">' + JW.escapeHTML(titulo) + '</div>' +
+    '</' + tag + '>';
+  };
+
+  JW.renderSolicitarOrcamento = function() {
+    JW.setTitulo("Orcamentos");
+    JW.orcamentoAnexo = null;
+    var draft = JW.getOrcamentoDraft();
+    JW.renderMain(
+      '<div class="card">' +
+        '<h3>Solicitar orcamento</h3>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Tipo de servico</label>' +
+          '<select id="orcTipo" class="form-input" onchange="JW.salvarDraftOrcamento()">' +
+            '<option value="">Selecione</option>' +
+            '<option ' + (draft.tipoServico === "Limpeza" ? "selected" : "") + '>Limpeza</option><option ' + (draft.tipoServico === "Manutencao" ? "selected" : "") + '>Manutencao</option><option ' + (draft.tipoServico === "Troca de areia" ? "selected" : "") + '>Troca de areia</option><option ' + (draft.tipoServico === "Instalacao" ? "selected" : "") + '>Instalacao</option><option ' + (draft.tipoServico === "Outro" ? "selected" : "") + '>Outro</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Descricao</label>' +
+          '<textarea id="orcDescricao" class="form-input" rows="5" placeholder="Descreva o que precisa ser feito" oninput="JW.salvarDraftOrcamento()">' + JW.escapeHTML(draft.descricao || "") + '</textarea>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Telefone</label>' +
+          '<input id="orcTelefone" class="form-input" type="tel" value="' + JW.escapeAttr(draft.telefone || ((JW.usuarioLogado && JW.usuarioLogado.telefone) || "")) + '" oninput="JW.formatarTelefone(this); JW.salvarDraftOrcamento();">' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Anexo</label>' +
+          '<label class="file-picker-modern"><i class="fas fa-camera"></i><span id="orcAnexoLabel">Escolher anexo</span><input id="orcAnexo" type="file" accept="image/*,.pdf" capture="environment" onchange="JW.selecionarAnexoOrcamento(this)"></label>' +
+          '<small class="text-muted attachment-help">Tire uma foto ou anexe uma imagem/arquivo da galeria.</small>' +
+          '<div id="orcamentoAnexoPreview" class="attachment-preview d-none" style="margin-top:.75rem;"></div>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Observacoes</label>' +
+          '<textarea id="orcObservacoes" class="form-input" rows="3" oninput="JW.salvarDraftOrcamento()">' + JW.escapeHTML(draft.observacoes || "") + '</textarea>' +
+        '</div>' +
+        '<button class="btn btn-primary" onclick="JW.enviarOrcamento()"><i class="fas fa-paper-plane"></i> Enviar solicitacao</button>' +
+      '</div>'
+    );
+  };
+
+  JW.getOrcamentoDraft = function() {
+    try {
+      return JSON.parse(localStorage.getItem("jw_orcamento_draft_" + ((JW.usuarioLogado && JW.usuarioLogado.email) || "anon")) || "{}");
+    } catch (error) {
+      return {};
+    }
+  };
+
+  JW.salvarDraftOrcamento = function() {
+    if (!JW.usuarioLogado) return;
+    var dados = {
+      tipoServico: (document.getElementById("orcTipo") || {}).value || "",
+      descricao: (document.getElementById("orcDescricao") || {}).value || "",
+      telefone: (document.getElementById("orcTelefone") || {}).value || "",
+      observacoes: (document.getElementById("orcObservacoes") || {}).value || ""
+    };
+    localStorage.setItem("jw_orcamento_draft_" + JW.usuarioLogado.email, JSON.stringify(dados));
+  };
+
+  JW.limparDraftOrcamento = function() {
+    if (JW.usuarioLogado) localStorage.removeItem("jw_orcamento_draft_" + JW.usuarioLogado.email);
+  };
+
+  JW.selecionarAnexoOrcamento = function(input) {
+    var file = input && input.files && input.files[0];
+    var preview = document.getElementById("orcamentoAnexoPreview");
+    JW.orcamentoAnexo = null;
+    if (!file) {
+      if (preview) preview.classList.add("d-none");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      JW.toast("Anexo muito grande. Use um arquivo de ate 8 MB.", "error");
+      input.value = "";
+      return;
+    }
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      JW.orcamentoAnexo = { nome: file.name, tipo: file.type, dataUrl: e.target.result };
+      var label = document.getElementById("orcAnexoLabel");
+      if (label) label.textContent = file.name;
+      if (preview) {
+        preview.classList.remove("d-none");
+        preview.innerHTML = '<i class="fas fa-paperclip"></i> ' + JW.escapeHTML(file.name) + ' <button class="btn btn-sm btn-secondary" onclick="JW.removerAnexoOrcamento()">Remover</button>';
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  JW.removerAnexoOrcamento = function() {
+    JW.orcamentoAnexo = null;
+    var input = document.getElementById("orcAnexo");
+    var preview = document.getElementById("orcamentoAnexoPreview");
+    var label = document.getElementById("orcAnexoLabel");
+    if (input) input.value = "";
+    if (label) label.textContent = "Escolher anexo";
+    if (preview) preview.classList.add("d-none");
+  };
+
+  JW.enviarOrcamento = async function() {
+    var tipo = (document.getElementById("orcTipo") || {}).value || "";
+    var descricao = (document.getElementById("orcDescricao") || {}).value || "";
+    var telefone = (document.getElementById("orcTelefone") || {}).value || "";
+    var observacoes = (document.getElementById("orcObservacoes") || {}).value || "";
+
+    if (!tipo || !descricao || descricao.trim().length < 10) {
+      JW.toast("Informe o tipo e uma descricao com pelo menos 10 caracteres.", "error");
+      return;
+    }
+
+    JW.mostrarLoading(JW.orcamentoAnexo ? "Enviando anexo..." : "Enviando orcamento...");
+    try {
+      var anexoURL = "";
+      if (JW.orcamentoAnexo && JW.orcamentoAnexo.dataUrl) {
+        anexoURL = await JW.chamarGoogleScript("uploadImagemParaDrive", JW.orcamentoAnexo.dataUrl, JW.orcamentoAnexo.nome);
+      }
+
+      var resultado = await JW.chamarGoogleScript("solicitarOrcamento", {
+        cliente: JW.usuarioLogado.usuario || JW.usuarioLogado.email,
+        email: JW.usuarioLogado.email,
+        telefone: telefone,
+        tipoServico: tipo,
+        descricao: descricao,
+        imagemURL: anexoURL || "",
+        arquivoURL: anexoURL || "",
+        arquivoNome: JW.orcamentoAnexo ? JW.orcamentoAnexo.nome : "",
+        observacoes: observacoes
+      });
+      JW.esconderLoading();
+
+      if (resultado && resultado.success) {
+        JW.toast("Orcamento recebido com sucesso. Retornaremos com uma proposta por e-mail e/ou WhatsApp.", "success");
+        JW.limparDraftOrcamento();
+        JW.renderSolicitarOrcamento();
+      } else {
+        JW.toast(resultado && resultado.message ? resultado.message : "Nao foi possivel enviar.", "error");
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao enviar orcamento: " + (error.message || error), "error");
+    }
+  };
+
+  JW.carregarHistorico = async function() {
+    JW.setTitulo("Historico");
+    var h = await JW.chamarGoogleScript("getHistoricoCompletoUsuarioV3", JW.usuarioLogado.email);
+    var itens = h && h.itens ? h.itens : [];
+    JW.historicoItens = itens;
+    JW.historicoFiltro = "Todos";
+    JW.renderHistorico();
+  };
+
+  JW.renderHistorico = function() {
+    var itens = JW.historicoItens || [];
+    var tiposMapa = {};
+    var tipos = [];
+    for (var i = 0; i < itens.length; i++) {
+      var tipo = itens[i].tipo || "Registro";
+      if (!tiposMapa[tipo]) {
+        tiposMapa[tipo] = true;
+        tipos.push(tipo);
+      }
+    }
+    var lista = JW.historicoFiltro === "Todos" ? itens : itens.filter(function(item) { return (item.tipo || "Registro") === JW.historicoFiltro; });
+    var filtros = '<div class="history-filter-bar">' +
+      '<button class="filter-btn todos ' + (JW.historicoFiltro === "Todos" ? "active" : "") + '" onclick="JW.filtrarHistorico(' + JW.attrJs("Todos") + ')">Todos</button>';
+    for (var j = 0; j < tipos.length; j++) {
+      filtros += '<button class="filter-btn ' + (JW.historicoFiltro === tipos[j] ? "active" : "") + '" onclick="JW.filtrarHistorico(' + JW.attrJs(tipos[j]) + ')">' + JW.escapeHTML(tipos[j]) + '</button>';
+    }
+    filtros += '</div>';
+    JW.renderMain(filtros + '<div class="history-list">' + JW.renderListaHistorico(lista) + '</div>');
+  };
+
+  JW.filtrarHistorico = function(tipo) {
+    JW.historicoFiltro = tipo || "Todos";
+    JW.renderHistorico();
+  };
+
+  JW.toggleHistoryItem = function(id) {
+    var card = document.getElementById(id);
+    if (!card) return;
+    card.classList.toggle("collapsed");
+    var icon = card.querySelector(".history-toggle i");
+    if (icon) icon.className = card.classList.contains("collapsed") ? "fas fa-chevron-down" : "fas fa-chevron-up";
+  };
+
+  JW.renderListaHistorico = function(itens) {
+    if (!itens || !itens.length) return '<p class="text-muted">Nenhum registro encontrado.</p>';
+    var html = '<div class="list">';
+    for (var i = 0; i < itens.length; i++) {
+      var item = itens[i] || {};
+      var cardId = "history-card-" + i;
+      html += '<div class="history-card" id="' + cardId + '">' +
+        '<div class="history-main">' +
+          '<div class="history-head-row">' +
+            '<div>' +
+              '<div class="history-kicker">' + JW.escapeHTML(item.tipo || "Registro") + ' | ' + JW.escapeHTML(item.dataRegistro || "") + '</div>' +
+              '<strong>' + JW.escapeHTML(item.titulo || item.id || "") + '</strong>' +
+            '</div>' +
+            '<button class="history-toggle" onclick="JW.toggleHistoryItem(' + JW.attrJs(cardId) + ')" title="Minimizar ou expandir"><i class="fas fa-chevron-up"></i></button>' +
+          '</div>' +
+          '<div class="history-main-body">' +
+            '<div class="history-meta"><span>ID: ' + JW.escapeHTML(item.id || "") + '</span>' + (item.telefone ? '<span>Telefone: ' + JW.escapeHTML(item.telefone) + '</span>' : '') + (item.dataValidade ? '<span>Validade: ' + JW.escapeHTML(item.dataValidade) + '</span>' : '') + '</div>' +
+            '<p>' + JW.escapeHTML(item.descricao || "") + '</p>' +
+            (item.observacoes ? '<div class="history-note">Observacoes: ' + JW.escapeHTML(item.observacoes) + '</div>' : '') +
+            (item.arquivoURL || item.imagemURL ? '<button class="btn btn-sm btn-secondary" onclick="window.open(' + JW.attrJs(item.arquivoURL || item.imagemURL) + ', ' + JW.attrJs("_blank") + ')"><i class="fas fa-paperclip"></i> Ver anexo</button>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="history-side">' +
+          '<span class="badge badge-info history-status">' + JW.escapeHTML(item.status || "") + '</span>' +
+          (item.valor ? '<strong>' + JW.escapeHTML(item.valor) + '</strong>' : '') +
+        '</div>' +
+      '</div>';
+    }
+    return html + '</div>';
+  };
+
+  JW.carregarProdutos = async function(produtoFoco) {
+    JW.setTitulo("Produtos");
+    var produtos = await JW.chamarGoogleScript("getProdutos");
+    JW.produtosCache = produtos || [];
+    JW.renderLojaProdutos(produtoFoco);
+  };
+
+  JW.getCategorias = function(lista) {
+    var mapa = {};
+    var cats = [];
+    for (var i = 0; i < (lista || []).length; i++) {
+      var cat = lista[i].categoria || "Sem categoria";
+      if (!mapa[cat]) {
+        mapa[cat] = true;
+        cats.push(cat);
+      }
+    }
+    return cats;
+  };
+
+  JW.renderFiltrosCategorias = function(categorias, filtro, fn) {
+    var html = '<div class="filters-container"><div class="filters-title">Filtrar por categoria</div><div class="filters-buttons">';
+    html += '<button class="filter-btn todos ' + (filtro === "Todos" ? "active" : "") + '" onclick="' + fn + '(' + JW.attrJs("Todos") + ')">Todos</button>';
+    for (var i = 0; i < categorias.length; i++) {
+      html += '<button class="filter-btn ' + (filtro === categorias[i] ? "active" : "") + '" onclick="' + fn + '(' + JW.attrJs(categorias[i]) + ')">' + JW.escapeHTML(categorias[i]) + '</button>';
+    }
+    return html + '</div></div>';
+  };
+
+  JW.renderLojaProdutos = function(produtoFoco) {
+    var lista = JW.produtoFiltro === "Todos" ? JW.produtosCache : JW.produtosCache.filter(function(p) { return (p.categoria || "Sem categoria") === JW.produtoFiltro; });
+    JW.renderMain(
+      JW.renderFiltrosCategorias(JW.getCategorias(JW.produtosCache), JW.produtoFiltro, "JW.filtrarProdutos") +
+      '<div class="products-grid">' + JW.renderProdutos(lista, produtoFoco) + '</div>'
+    );
+    if (produtoFoco) {
+      window.setTimeout(function() {
+        var alvo = document.getElementById("produto-" + produtoFoco);
+        if (alvo) alvo.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 80);
+    }
+  };
+
+  JW.filtrarProdutos = function(categoria) {
+    JW.produtoFiltro = categoria || "Todos";
+    JW.renderLojaProdutos();
+  };
+
+  JW.renderProdutos = function(produtos) {
+    if (!produtos || !produtos.length) return '<div class="card"><p class="text-muted">Nenhum produto disponivel.</p></div>';
+    var html = "";
+    for (var i = 0; i < produtos.length; i++) {
+      var p = produtos[i];
+      var estoque = parseInt(p.estoque, 10) || 0;
+      var preco = JW.numero(p.preco);
+      var desconto = JW.numero(p.precoComDesconto);
+      var temDesconto = desconto > 0;
+      var podeComprar = estoque > 0;
+      var img = p.imagemURL ? '<img src="' + JW.escapeAttr(p.imagemURL) + '" class="product-image" alt="' + JW.escapeAttr(p.nome || "Produto") + '" onerror="this.parentElement.innerHTML=\'<i class=&quot;fas fa-box&quot; style=&quot;font-size:2rem;color:var(--text-muted)&quot;></i>\';">' : '<i class="fas fa-box" style="font-size:2rem;color:var(--text-muted)"></i>';
+      var precoHtml = "";
+      if (temDesconto) {
+        precoHtml = '<div class="product-price-container product-price-has-discount">' +
+          '<div class="text-muted" style="text-decoration:line-through;cursor:' + (JW.isAdmin() ? "pointer" : "default") + ';" ' + (JW.isAdmin() ? 'onclick="JW.editarPrecoProduto(' + JW.attrJs(p.id) + ', ' + JW.attrJs("preco") + ')" title="Alterar preco cheio"' : '') + '>' + JW.formatarMoeda(preco) + '</div>' +
+          '<div class="product-price" ' + (JW.isAdmin() ? 'onclick="JW.editarPrecoProduto(' + JW.attrJs(p.id) + ', ' + JW.attrJs("desconto") + ')" title="Alterar preco com desconto"' : '') + '>' + JW.formatarMoeda(desconto) + '</div>' +
+        '</div>';
+      } else {
+        precoHtml = '<div class="product-price-container product-price-single"><div class="product-price" ' + (JW.isAdmin() ? 'onclick="JW.editarPrecoProduto(' + JW.attrJs(p.id) + ', ' + JW.attrJs("preco") + ')" title="Alterar preco"' : '') + '>' + JW.formatarMoeda(preco) + '</div></div>';
+      }
+
+      html += '<div class="product-card" id="produto-' + JW.escapeAttr(p.id) + '">' +
+        '<div class="product-image-container">' + img + '</div>' +
+        '<div class="product-info">' +
+          '<div class="product-name">' + JW.escapeHTML(p.nome || "Produto") + '</div>' +
+          '<div class="text-muted">' + JW.escapeHTML(p.categoria || "") + '</div>' +
+          '<p>' + JW.escapeHTML(p.descricao || "") + '</p>' +
+          precoHtml +
+          '<div class="text-muted" style="margin:.5rem 0;">Estoque: ' + estoque + '</div>' +
+          '<div style="display:flex;gap:.5rem;flex-wrap:wrap;">' +
+            '<button class="btn ' + (podeComprar ? "btn-success" : "btn-secondary") + '" ' + (podeComprar ? 'onclick="JW.abrirCompraProduto(' + JW.attrJs(p.id) + ')"' : "disabled") + '><i class="fas fa-shopping-cart"></i> Comprar</button>' +
+            (p.exibirManual && (p.manualURL || p.manualVideoURL) ? '<button class="btn btn-manual" onclick="JW.abrirManualProduto(' + JW.attrJs(p.id) + ')"><i class="fas fa-book"></i> Manual</button>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+    return html;
+  };
+
+  JW.buscarProduto = function(id) {
+    for (var i = 0; i < JW.produtosCache.length; i++) {
+      if (String(JW.produtosCache[i].id) === String(id)) return JW.produtosCache[i];
+    }
+    return null;
+  };
+
+  JW.abrirCompraProduto = function(id) {
+    var produto = JW.buscarProduto(id);
+    if (!produto) return;
+    JW.produtoAtual = produto;
+
+    var nome = document.getElementById("modalProdutoNome");
+    var desc = document.getElementById("modalProdutoDescricao");
+    var preco = document.getElementById("modalProdutoPreco");
+    var estoque = document.getElementById("modalProdutoEstoque");
+    var qtd = document.getElementById("modalProdutoQuantidade");
+    var imagem = document.getElementById("modalProdutoImagem");
+
+    if (nome) nome.textContent = produto.nome || "Produto";
+    if (desc) desc.textContent = produto.descricao || "";
+    if (preco) preco.textContent = JW.formatarMoeda(JW.precoAtivoProduto(produto));
+    if (estoque) estoque.textContent = (produto.estoque || 0) + " em estoque";
+    if (qtd) {
+      qtd.value = 1;
+      qtd.max = produto.estoque || 1;
+    }
+    if (imagem) {
+      imagem.innerHTML = produto.imagemURL
+        ? '<img src="' + JW.escapeAttr(produto.imagemURL) + '" alt="' + JW.escapeAttr(produto.nome || "Produto") + '" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius-md);" onerror="this.parentElement.innerHTML=\'<i class=&quot;fas fa-box&quot; style=&quot;font-size:2rem;color:var(--text-muted)&quot;></i>\';">'
+        : '<i class="fas fa-box" style="font-size:2rem;color:var(--text-muted)"></i>';
+    }
+
+    JW.atualizarTotalModal();
+    JW.abrirModal("modalComprar");
+  };
+
+  JW.atualizarTotalModal = function() {
+    var qtd = parseInt((document.getElementById("modalProdutoQuantidade") || {}).value, 10) || 1;
+    var estoque = parseInt((JW.produtoAtual && JW.produtoAtual.estoque) || 1, 10) || 1;
+    if (qtd < 1) qtd = 1;
+    if (qtd > estoque) qtd = estoque;
+    var qtdEl = document.getElementById("modalProdutoQuantidade");
+    if (qtdEl) qtdEl.value = qtd;
+    var total = JW.precoAtivoProduto(JW.produtoAtual) * qtd;
+    var totalEl = document.getElementById("modalProdutoTotal");
+    if (totalEl) totalEl.textContent = "Total: " + JW.formatarMoeda(total);
+  };
+
+  JW.confirmarCompra = async function() {
+    if (!JW.produtoAtual) return;
+    var qtd = parseInt((document.getElementById("modalProdutoQuantidade") || {}).value, 10) || 1;
+    var produto = JW.produtoAtual;
+
+    JW.mostrarLoading("Registrando compra...");
+    try {
+      var item = {
+        id: produto.id,
+        nome: produto.nome,
+        preco: JW.precoAtivoProduto(produto),
+        quantidade: qtd
+      };
+      var resultado = await JW.chamarGoogleScript("registrarCompra", {
+        cliente: JW.usuarioLogado.usuario || JW.usuarioLogado.email,
+        email: JW.usuarioLogado.email,
+        produtos: JSON.stringify([item])
+      });
+      JW.esconderLoading();
+
+      if (resultado && resultado.success) {
+        JW.fecharModal("modalComprar");
+        JW.toast("Compra realizada com sucesso.", "success");
+        await JW.carregarProdutos();
+      } else {
+        JW.toast(resultado && resultado.message ? resultado.message : "Nao foi possivel comprar.", "error");
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao comprar: " + (error.message || error), "error");
+    }
+  };
+
+  JW.editarPrecoProduto = function(id, campo) {
+    if (!JW.isAdmin()) return;
+    var produto = JW.buscarProduto(id);
+    if (!produto) return;
+    var atual = campo === "desconto" ? produto.precoComDesconto : produto.preco;
+    JW.produtoPrecoEditando = { id: id, campo: campo };
+    JW.abrirModalSistema(
+      '<i class="fas fa-tags"></i> ' + (campo === "desconto" ? "Alterar preco com desconto" : "Alterar preco cheio"),
+      '<div class="form-group">' +
+        '<label class="form-label">Produto</label>' +
+        '<div class="profile-field"><strong>' + JW.escapeHTML(produto.nome || "Produto") + '</strong></div>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Novo valor</label>' +
+        '<input id="produtoPrecoNovo" class="form-input" inputmode="decimal" value="' + JW.escapeAttr(JW.formatarMoeda(JW.numero(atual))) + '" oninput="JW.formatarCampoMoeda(this)">' +
+      '</div>',
+      '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;"><button class="btn btn-primary" onclick="JW.confirmarEditarPrecoProduto()">Salvar preco</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
+    );
+    window.setTimeout(function() {
+      var input = document.getElementById("produtoPrecoNovo");
+      if (input) input.select();
+    }, 50);
+  };
+
+  JW.confirmarEditarPrecoProduto = async function() {
+    if (!JW.produtoPrecoEditando) return;
+    var novoValor = JW.numero((document.getElementById("produtoPrecoNovo") || {}).value || "");
+    var campo = JW.produtoPrecoEditando.campo;
+    if ((campo !== "desconto" && novoValor <= 0) || novoValor < 0) {
+      JW.toast("Preco invalido.", "error");
+      return;
+    }
+
+    var id = JW.produtoPrecoEditando.id;
+    JW.fecharModalSistema();
+    JW.mostrarLoading("Atualizando preco...");
+    try {
+      var resultado = await JW.chamarGoogleScript("atualizarPrecoProdutoCampoV3", id, String(novoValor), campo);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Preco atualizado.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) await JW.carregarProdutos();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao atualizar preco: " + (error.message || error), "error");
+    }
+  };
+
+  JW.abrirManualProduto = function(id) {
+    var produto = JW.buscarProduto(id);
+    if (!produto) return;
+    var url = produto.manualURL || produto.manualVideoURL;
+    if (url) window.open(url, "_blank");
+  };
+
+  JW.carregarManuais = async function() {
+    JW.setTitulo("Manuais");
+    var manuais = await JW.chamarGoogleScript("getManuais");
+    JW.manuaisCache = manuais || [];
+    if (!JW.manuaisCache.length) {
+      JW.renderMain('<div class="card"><p class="text-muted">Nenhum manual disponivel para os produtos da loja.</p></div>');
+      return;
+    }
+
+    JW.renderListaManuais();
+  };
+
+  JW.renderListaManuais = function() {
+    var lista = JW.manualFiltro === "Todos" ? JW.manuaisCache : JW.manuaisCache.filter(function(m) { return (m.categoria || "Sem categoria") === JW.manualFiltro; });
+    var html = JW.renderFiltrosCategorias(JW.getCategorias(JW.manuaisCache), JW.manualFiltro, "JW.filtrarManuais") + '<div class="card"><div class="list">';
+    for (var i = 0; i < lista.length; i++) {
+      var m = lista[i];
+      html += '<div class="list-item manual-list-item">' +
+        '<div class="manual-thumb">' + (m.imagemURL ? '<img src="' + JW.escapeAttr(m.imagemURL) + '" alt="' + JW.escapeAttr(m.produto || "Produto") + '">' : '<i class="fas fa-book"></i>') + '</div>' +
+        '<div class="manual-info"><strong>' + JW.escapeHTML(m.produto || "Produto") + '</strong><div class="text-muted">' + JW.escapeHTML(m.descricao || m.categoria || "") + '</div></div>' +
+        '<div style="display:flex;gap:.5rem;flex-wrap:wrap;">' +
+          (m.url ? '<button class="btn btn-manual btn-sm" onclick="window.open(' + JW.attrJs(m.url) + ', ' + JW.attrJs("_blank") + ')"><i class="fas fa-file-pdf"></i> PDF</button>' : '') +
+          (m.videoURL ? '<button class="btn btn-manual btn-sm" onclick="window.open(' + JW.attrJs(m.videoURL) + ', ' + JW.attrJs("_blank") + ')"><i class="fas fa-video"></i> Video</button>' : '') +
+        '</div>' +
+      '</div>';
+    }
+    JW.renderMain(html + '</div></div>');
+  };
+
+  JW.filtrarManuais = function(categoria) {
+    JW.manualFiltro = categoria || "Todos";
+    JW.renderListaManuais();
+  };
+
+  JW.carregarPendencias = async function() {
+    JW.setTitulo("Pendencias");
+    if (!JW.isAdmin()) {
+      JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
+      return;
+    }
+
+    var c = await JW.chamarGoogleScript("getCentralAdminV3");
+    var orcamentos = (c && c.orcamentosPendentes) || [];
+    var compras = (c && c.comprasPendentes) || [];
+    var html = '<section class="collapsible-section section-orcamentos" id="secOrcamentosPendentes">' +
+      '<button class="collapsible-header" onclick="JW.toggleSection(' + JW.attrJs("secOrcamentosPendentes") + ')"><span><i class="fas fa-file-invoice-dollar"></i> Orcamentos pendentes</span><strong>' + orcamentos.length + '</strong><i class="fas fa-chevron-up"></i></button>' +
+      '<div class="collapsible-content">' + JW.renderOrcamentosAdmin(orcamentos) + '</div>' +
+    '</section>' +
+    '<section class="collapsible-section section-compras" id="secComprasPendentes">' +
+      '<button class="collapsible-header" onclick="JW.toggleSection(' + JW.attrJs("secComprasPendentes") + ')"><span><i class="fas fa-shopping-cart"></i> Compras pendentes</span><strong>' + compras.length + '</strong><i class="fas fa-chevron-up"></i></button>' +
+      '<div class="collapsible-content">' + JW.renderComprasAdmin(compras) + '</div>' +
+    '</section>';
+    if (c && c.erros && c.erros.length) html += '<div class="alert alert-error">' + JW.escapeHTML(c.erros.join(" | ")) + '</div>';
+    JW.renderMain(html);
+  };
+
+  JW.toggleSection = function(id) {
+    var sec = document.getElementById(id);
+    if (!sec) return;
+    sec.classList.toggle("collapsed");
+    var icon = sec.querySelector(".collapsible-header > i:last-child");
+    if (icon) icon.className = sec.classList.contains("collapsed") ? "fas fa-chevron-down" : "fas fa-chevron-up";
+  };
+
+  JW.renderOrcamentosAdmin = function(lista) {
+    if (!lista || !lista.length) return '<p class="text-muted">Nenhum orcamento pendente.</p>';
+    var html = '<div class="pending-grid pending-orcamentos">';
+    for (var i = 0; i < lista.length; i++) {
+      var o = lista[i];
+      html += '<div class="pending-card pending-budget">' +
+        '<div class="pending-card-head"><div><strong>' + JW.escapeHTML(o.id) + '</strong><span>' + JW.escapeHTML(o.cliente) + '</span></div><i class="fas fa-file-invoice-dollar"></i></div>' +
+        '<div class="pending-card-body">' +
+          '<p class="text-muted">' + JW.escapeHTML(o.tipoServico || "") + ' | ' + JW.escapeHTML(o.email || "") + '</p>' +
+          '<p>' + JW.escapeHTML(o.descricao || "") + '</p>' +
+          '<div class="pending-meta"><span>Telefone: ' + JW.escapeHTML(o.telefone || "-") + '</span><span>Data: ' + JW.escapeHTML(o.dataSolicitacao || "-") + '</span><span>Valor: ' + JW.escapeHTML(o.valor || "Aguardando") + '</span></div>' +
+          (o.observacoes ? '<div class="history-note">' + JW.escapeHTML(o.observacoes) + '</div>' : '') +
+          (o.arquivoURL || o.imagemURL ? '<button class="btn btn-sm btn-secondary" onclick="window.open(' + JW.attrJs(o.arquivoURL || o.imagemURL) + ', ' + JW.attrJs("_blank") + ')"><i class="fas fa-paperclip"></i> Ver anexo</button>' : '') +
+        '</div>' +
+        '<div class="pending-actions">' +
+          '<button class="btn btn-sm btn-primary" onclick="JW.abrirModalPropostaOrcamento(' + JW.attrJs(o.id) + ')">Proposta</button>' +
+          '<button class="btn btn-sm btn-secondary" onclick="JW.abrirConcluirSemCobrar(' + JW.attrJs(o.id) + ')">Concluir sem cobrar</button>' +
+        '</div>' +
+      '</div>';
+    }
+    return html + '</div>';
+  };
+
+  JW.abrirModalPropostaOrcamento = function(id) {
+    JW.abrirModalSistema(
+      '<i class="fas fa-file-invoice-dollar"></i> Enviar proposta',
+      '<input type="hidden" id="orcamentoPropostaId" value="' + JW.escapeAttr(id) + '">' +
+      '<div class="form-group"><label class="form-label">Valor da proposta</label><input id="orcamentoPropostaValor" class="form-input" inputmode="decimal" placeholder="R$ 0,00" oninput="JW.formatarCampoMoeda(this)"></div>' +
+      '<div class="form-group"><label class="form-label">Observacoes</label><textarea id="orcamentoPropostaObs" class="form-input" rows="3"></textarea></div>',
+      '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;"><button class="btn btn-primary" onclick="JW.confirmarPropostaOrcamento()">Enviar proposta</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
+    );
+  };
+
+  JW.formatarCampoMoeda = function(input) {
+    var numeros = (input.value || "").replace(/\D/g, "");
+    var valor = (parseInt(numeros || "0", 10) / 100).toFixed(2);
+    input.value = "R$ " + valor.replace(".", ",");
+  };
+
+  JW.confirmarPropostaOrcamento = async function() {
+    var id = (document.getElementById("orcamentoPropostaId") || {}).value || "";
+    var valor = (document.getElementById("orcamentoPropostaValor") || {}).value || "";
+    var obs = (document.getElementById("orcamentoPropostaObs") || {}).value || "";
+    if (JW.numero(valor) <= 0) {
+      JW.toast("Informe um valor valido para a proposta.", "error");
+      return;
+    }
+    JW.fecharModalSistema();
+    await JW.atualizarOrcamentoAdmin(id, valor, "Em Negocia\u00e7\u00e3o", obs);
+  };
+
+  JW.abrirConcluirSemCobrar = function(id) {
+    JW.abrirModalSistema(
+      '<i class="fas fa-check-circle"></i> Concluir sem cobrar',
+      '<p>Voce quer realmente aceitar/concluir esta solicitacao sem cobrar o servico?</p><input type="hidden" id="orcamentoSemCobrancaId" value="' + JW.escapeAttr(id) + '">',
+      '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;"><button class="btn btn-primary" onclick="JW.confirmarConcluirSemCobrar()">Sim, concluir sem cobrar</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
+    );
+  };
+
+  JW.confirmarConcluirSemCobrar = async function() {
+    var id = (document.getElementById("orcamentoSemCobrancaId") || {}).value || "";
+    JW.fecharModalSistema();
+    await JW.atualizarOrcamentoAdmin(id, "", "Concluido", "Concluido sem cobranca pelo admin");
+  };
+
+  JW.atualizarOrcamentoAdmin = async function(id, valor, status, obs) {
+    JW.mostrarLoading("Atualizando orcamento...");
+    try {
+      var valorNormalizado = valor;
+      if (valorNormalizado !== null && valorNormalizado !== undefined && valorNormalizado !== "") {
+        valorNormalizado = String(valorNormalizado).replace("R$", "").replace(/\s/g, "");
+        if (valorNormalizado.indexOf(",") !== -1) valorNormalizado = valorNormalizado.replace(/\./g, "").replace(",", ".");
+      }
+      var resultado = await JW.chamarGoogleScript("aprovarOrcamento", id, valorNormalizado, status, obs);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Orcamento atualizado.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) await JW.carregarPendencias();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao atualizar orcamento: " + (error.message || error), "error");
+    }
+  };
+
+  JW.renderComprasAdmin = function(lista) {
+    if (!lista || !lista.length) return '<p class="text-muted">Nenhuma compra pendente.</p>';
+    var html = '<div class="pending-grid pending-compras">';
+    for (var i = 0; i < lista.length; i++) {
+      var c = lista[i];
+      html += '<div class="pending-card pending-purchase">' +
+        '<div class="pending-card-head"><div><strong>' + JW.escapeHTML(c.id) + '</strong><span>' + JW.escapeHTML(c.cliente) + '</span></div><i class="fas fa-shopping-cart"></i></div>' +
+        '<div class="pending-products">' + JW.renderProdutosCompraAdmin(c.produtosLista || []) + '</div>' +
+        '<div class="pending-card-body">' +
+          '<p class="text-muted">' + JW.escapeHTML(c.email || "") + ' | ' + JW.escapeHTML(c.dataCompra || "") + '</p>' +
+          '<div class="pending-meta"><span>Quantidade: ' + JW.escapeHTML(c.quantidadeTotal || 0) + '</span><span>Valor: ' + JW.escapeHTML(c.valorTotalFormatado || JW.formatarMoeda(c.valorTotal || 0)) + '</span><span>Pagamento: ' + JW.escapeHTML(c.statusPagamento || "Pendente") + '</span></div>' +
+          (c.observacoesAdmin ? '<div class="history-note">' + JW.escapeHTML(c.observacoesAdmin) + '</div>' : '') +
+        '</div>' +
+        '<div class="pending-actions">' +
+          '<button class="btn btn-sm btn-primary" onclick="JW.atualizarStatusCompraAdmin(' + JW.attrJs(c.id) + ', ' + JW.attrJs("Em transito") + ')">Em transito</button>' +
+          '<button class="btn btn-sm btn-success" onclick="JW.atualizarStatusCompraAdmin(' + JW.attrJs(c.id) + ', ' + JW.attrJs("Entregue") + ')">Entregue</button>' +
+          '<button class="btn btn-sm btn-danger" onclick="JW.abrirCancelarCompra(' + JW.attrJs(c.id) + ')">Cancelar</button>' +
+        '</div>' +
+      '</div>';
+    }
+    return html + '</div>';
+  };
+
+  JW.renderProdutosCompraAdmin = function(produtos) {
+    if (!produtos || !produtos.length) return '<p class="text-muted">Produto nao identificado.</p>';
+    var html = "";
+    for (var i = 0; i < produtos.length; i++) {
+      var p = produtos[i];
+      html += '<div class="purchase-product-mini">' +
+        (p.imagemURL ? '<img src="' + JW.escapeAttr(p.imagemURL) + '" alt="' + JW.escapeAttr(p.nome || "Produto") + '">' : '<div><i class="fas fa-box"></i></div>') +
+        '<span>' + JW.escapeHTML(p.nome || "Produto") + '</span>' +
+        '<strong>x' + JW.escapeHTML(p.quantidade || 1) + '</strong>' +
+      '</div>';
+    }
+    return html;
+  };
+
+  JW.abrirCancelarCompra = function(id) {
+    JW.abrirModalSistema(
+      '<i class="fas fa-ban"></i> Cancelar compra',
+      '<p>Voce tem certeza que deseja cancelar esta compra?</p><input type="hidden" id="compraCancelarId" value="' + JW.escapeAttr(id) + '">' +
+      '<div class="form-group"><label class="form-label">Observacao para o cliente</label><textarea id="compraCancelarObs" class="form-input" rows="3" placeholder="Opcional"></textarea></div>',
+      '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;"><button class="btn btn-danger" onclick="JW.confirmarCancelarCompra()">Cancelar compra</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Voltar</button></div>'
+    );
+  };
+
+  JW.confirmarCancelarCompra = async function() {
+    var id = (document.getElementById("compraCancelarId") || {}).value || "";
+    var obs = (document.getElementById("compraCancelarObs") || {}).value || "";
+    JW.fecharModalSistema();
+    await JW.atualizarStatusCompraAdmin(id, "Cancelado", obs);
+  };
+
+  JW.atualizarStatusCompraAdmin = async function(id, status, observacao) {
+    JW.mostrarLoading("Atualizando compra...");
+    try {
+      var resultado = await JW.chamarGoogleScript("atualizarStatusCompraAdminV3", id, status, observacao || "");
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Compra atualizada.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) await JW.carregarPendencias();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao atualizar compra: " + (error.message || error), "error");
+    }
+  };
+
+  JW.carregarRelatorios = async function() {
+    JW.setTitulo("Relatorios");
+    if (!JW.isAdmin()) {
+      JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
+      return;
+    }
+
+    var r = await JW.chamarGoogleScript("getRelatoriosAdminV3");
+    JW.relatorioDados = r || {};
+    JW.renderRelatorios("");
+  };
+
+  JW.renderRelatorios = function(detalhe, evt) {
+    if (evt && evt.stopPropagation) evt.stopPropagation();
+    detalhe = detalhe || "";
+    JW.relatorioSelecionado = detalhe;
+    var r = JW.relatorioDados || {};
+    var receber = r.aReceber || { totalFormatado: JW.formatarMoeda(0) };
+    var html =
+      '<div class="report-page" onclick="JW.renderRelatorios(' + JW.attrJs("") + ')">' +
+      '<div class="report-action-grid" onclick="event.stopPropagation()">' +
+        JW.cardRelatorio("Clientes", r.totalClientes || 0, "clientes", detalhe, "report-clientes") +
+        JW.cardRelatorio("Orcamentos pendentes", r.orcamentosPendentes || 0, "orcamentos", detalhe, "report-orcamentos") +
+        JW.cardRelatorio("Compras pendentes", r.comprasPendentes || 0, "compras", detalhe, "report-compras") +
+        JW.cardRelatorio("Vendas", r.totalCompras || 0, "vendas", detalhe, "report-vendas") +
+      '</div>' +
+      JW.renderGraficosRelatorio(r, detalhe) +
+      (detalhe ? '<div class="card report-detail-card ' + JW.escapeAttr("detail-" + detalhe) + '" onclick="event.stopPropagation()"><h3>Detalhes</h3><div id="relatorioDetalhe">' + JW.renderDetalheRelatorio(detalhe) + '</div></div>' : '') +
+      '<div class="card"><h3>Resumo</h3>' +
+        '<div class="dashboard-stats">' +
+          JW.cardMetrica("Total de orcamentos", r.totalOrcamentos || 0, "fas fa-file-invoice-dollar", "", "metric-static") +
+          JW.cardMetrica("Total de compras", r.totalCompras || 0, "fas fa-shopping-cart", "", "metric-static") +
+          JW.cardMetrica("Administradores ativos", r.totalAdmins || 0, "fas fa-user-shield", "", "metric-static") +
+          JW.cardMetrica("A receber", receber.totalFormatado || JW.formatarMoeda(receber.total || 0), "fas fa-money-bill-wave", "", "metric-static") +
+        '</div>' +
+      '</div></div>';
+    JW.renderMain(html);
+  };
+
+  JW.cardRelatorio = function(titulo, valor, chave, ativo, classe) {
+    return '<button class="dashboard-card report-card ' + JW.escapeAttr(classe || "") + (ativo === chave ? " active" : "") + '" onclick="JW.renderRelatorios(' + JW.attrJs(chave) + ', event)">' +
+      '<i class="' + (ativo === chave ? "fas fa-check-circle" : "fas fa-chart-line") + '"></i>' +
+      '<div class="dashboard-card-value">' + JW.escapeHTML(valor) + '</div>' +
+      '<div class="text-muted">' + JW.escapeHTML(titulo) + '</div>' +
+    '</button>';
+  };
+
+  JW.renderGraficosRelatorio = function(r, detalhe) {
+    var totalPendencias = Math.max((r.orcamentosPendentes || 0) + (r.comprasPendentes || 0), 1);
+    var orcPct = Math.round(((r.orcamentosPendentes || 0) / totalPendencias) * 100);
+    var vendas = r.faturamentoCompras || 0;
+    var receber = (r.aReceber && r.aReceber.total) || 0;
+    var max = Math.max(vendas, receber, 1);
+    var totalClientes = r.totalClientes || 0;
+    var totalAdmins = r.totalAdmins || 0;
+    var totalUsuarios = Math.max(totalClientes + totalAdmins, 1);
+    var clientesPct = Math.round((totalClientes / totalUsuarios) * 100);
+    var totalOrc = Math.max(r.totalOrcamentos || 0, 1);
+    var orcPendPct = Math.round(((r.orcamentosPendentes || 0) / totalOrc) * 100);
+    var totalCompras = Math.max(r.totalCompras || 0, 1);
+    var compPendPct = Math.round(((r.comprasPendentes || 0) / totalCompras) * 100);
+    if (detalhe === "clientes") {
+      return '<div class="report-charts">' +
+        '<div class="analytics-panel"><h3>Perfil de usuarios</h3><div class="pie-row"><div class="css-pie" style="background:conic-gradient(#0f766e 0 ' + clientesPct + '%, #64748b ' + clientesPct + '% 100%);"></div><div class="chart-legend"><span><i style="background:#0f766e"></i>Clientes ' + totalClientes + '</span><span><i style="background:#64748b"></i>Admins ' + totalAdmins + '</span></div></div></div>' +
+        '<div class="analytics-panel"><h3>Base cadastrada</h3><div class="bar-line"><span>Clientes</span><div><b style="width:' + clientesPct + '%"></b></div><strong>' + totalClientes + '</strong></div><div class="bar-line"><span>Admins</span><div><b style="width:' + Math.round((totalAdmins / totalUsuarios) * 100) + '%"></b></div><strong>' + totalAdmins + '</strong></div></div>' +
+      '</div>';
+    }
+    if (detalhe === "orcamentos") {
+      return '<div class="report-charts">' +
+        '<div class="analytics-panel"><h3>Orcamentos</h3><div class="pie-row"><div class="css-pie" style="background:conic-gradient(#1d4ed8 0 ' + orcPendPct + '%, #cbd5e1 ' + orcPendPct + '% 100%);"></div><div class="chart-legend"><span><i style="background:#1d4ed8"></i>Pendentes ' + (r.orcamentosPendentes || 0) + '</span><span><i style="background:#cbd5e1"></i>Total ' + (r.totalOrcamentos || 0) + '</span></div></div></div>' +
+        '<div class="analytics-panel"><h3>Volume operacional</h3><div class="bar-line"><span>Pendentes</span><div><b style="width:' + orcPendPct + '%"></b></div><strong>' + (r.orcamentosPendentes || 0) + '</strong></div><div class="bar-line"><span>Total</span><div><b style="width:100%"></b></div><strong>' + (r.totalOrcamentos || 0) + '</strong></div></div>' +
+      '</div>';
+    }
+    if (detalhe === "compras") {
+      return '<div class="report-charts">' +
+        '<div class="analytics-panel"><h3>Compras</h3><div class="pie-row"><div class="css-pie" style="background:conic-gradient(#c2410c 0 ' + compPendPct + '%, #cbd5e1 ' + compPendPct + '% 100%);"></div><div class="chart-legend"><span><i style="background:#c2410c"></i>Pendentes ' + (r.comprasPendentes || 0) + '</span><span><i style="background:#cbd5e1"></i>Total ' + (r.totalCompras || 0) + '</span></div></div></div>' +
+        '<div class="analytics-panel"><h3>Fluxo de compras</h3><div class="bar-line"><span>Pendentes</span><div><b style="width:' + compPendPct + '%"></b></div><strong>' + (r.comprasPendentes || 0) + '</strong></div><div class="bar-line"><span>Total</span><div><b style="width:100%"></b></div><strong>' + (r.totalCompras || 0) + '</strong></div></div>' +
+      '</div>';
+    }
+    if (detalhe === "vendas") {
+      return '<div class="report-charts">' +
+        '<div class="analytics-panel"><h3>Receita de vendas</h3><div class="bar-line"><span>Vendas</span><div><b style="width:' + Math.round((vendas / max) * 100) + '%"></b></div><strong>' + JW.formatarMoeda(vendas) + '</strong></div><div class="bar-line"><span>A receber</span><div><b style="width:' + Math.round((receber / max) * 100) + '%"></b></div><strong>' + JW.formatarMoeda(receber) + '</strong></div></div>' +
+        '<div class="analytics-panel"><h3>Pedidos registrados</h3><div class="bar-line"><span>Compras</span><div><b style="width:100%"></b></div><strong>' + (r.totalCompras || 0) + '</strong></div><div class="bar-line"><span>Pendentes</span><div><b style="width:' + compPendPct + '%"></b></div><strong>' + (r.comprasPendentes || 0) + '</strong></div></div>' +
+      '</div>';
+    }
+    return '<div class="report-charts">' +
+      '<div class="analytics-panel"><h3>Distribuicao de pendencias</h3><div class="pie-row"><div class="css-pie" style="background:conic-gradient(#2563eb 0 ' + orcPct + '%, #f97316 ' + orcPct + '% 100%);"></div><div class="chart-legend"><span><i style="background:#2563eb"></i>Orcamentos</span><span><i style="background:#f97316"></i>Compras</span></div></div></div>' +
+      '<div class="analytics-panel"><h3>Financeiro</h3><div class="bar-line"><span>Vendas</span><div><b style="width:' + Math.round((vendas / max) * 100) + '%"></b></div><strong>' + JW.formatarMoeda(vendas) + '</strong></div><div class="bar-line"><span>A receber</span><div><b style="width:' + Math.round((receber / max) * 100) + '%"></b></div><strong>' + JW.formatarMoeda(receber) + '</strong></div></div>' +
+    '</div>';
+  };
+
+  JW.renderDetalheRelatorio = function(chave) {
+    var r = JW.relatorioDados || {};
+    if (chave === "clientes") return JW.renderTabelaSimples(r.clientes || [], ["usuario", "email", "telefone", "bairro", "endereco", "status"]);
+    if (chave === "orcamentos") return JW.renderTabelaSimples(r.orcamentosPendentesLista || [], ["id", "cliente", "tipoServico", "status", "valor"]);
+    if (chave === "compras") return JW.renderTabelaSimples(r.comprasPendentesLista || [], ["id", "cliente", "valorTotalFormatado", "statusEntrega"]);
+    if (chave === "vendas") return JW.renderTabelaSimples(r.vendas || [], ["id", "cliente", "valorTotalFormatado", "statusPagamento", "statusEntrega"]);
+    return '<p class="text-muted">Selecione um card acima.</p>';
+  };
+
+  JW.renderTabelaSimples = function(lista, campos) {
+    if (!lista || !lista.length) return '<p class="text-muted">Nenhum registro encontrado.</p>';
+    var html = '<div style="overflow:auto;"><table class="table" style="width:100%;border-collapse:collapse;">';
+    html += '<thead><tr>';
+    for (var i = 0; i < campos.length; i++) html += '<th style="text-align:left;padding:.6rem;border-bottom:1px solid var(--border);font-weight:700;">' + JW.escapeHTML(JW.labelCampo(campos[i])) + '</th>';
+    html += '</tr></thead><tbody>';
+    for (var j = 0; j < lista.length; j++) {
+      html += '<tr>';
+      for (var k = 0; k < campos.length; k++) html += '<td style="padding:.6rem;border-bottom:1px solid var(--border);">' + JW.escapeHTML(lista[j][campos[k]] || "") + '</td>';
+      html += '</tr>';
+    }
+    return html + '</tbody></table></div>';
+  };
+
+  JW.labelCampo = function(campo) {
+    var labels = {
+      id: "ID",
+      usuario: "Usuario",
+      email: "E-mail",
+      telefone: "Telefone",
+      bairro: "Bairro",
+      endereco: "Endereco",
+      status: "Status",
+      cliente: "Cliente",
+      tipoServico: "Tipo Servico",
+      valor: "Valor",
+      valorTotalFormatado: "Valor",
+      statusEntrega: "Status Entrega",
+      statusPagamento: "Status Pagamento",
+      tipo: "Tipo",
+      valorFormatado: "Valor"
+    };
+    return labels[campo] || campo;
+  };
+
+  JW.carregarMensagensDiretas = async function() {
+    JW.setTitulo("Mensagens diretas");
+    if (!JW.isAdmin()) {
+      JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
+      return;
+    }
+
+    var produtos = await JW.chamarGoogleScript("getProdutos");
+    JW.produtosCache = produtos || [];
+    var notif = await JW.chamarGoogleScript("getAllNotificacoesV3");
+    var historico = notif && notif.itens ? notif.itens : [];
+    var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
+    var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
+    var options = '<option value="">Sem item vinculado</option>';
+    for (var i = 0; i < JW.produtosCache.length; i++) {
+      options += '<option value="' + JW.escapeAttr(JW.produtosCache[i].id) + '">' + JW.escapeHTML(JW.produtosCache[i].nome) + '</option>';
+    }
+
+    JW.renderMain(
+      '<div class="messages-admin-layout">' +
+      '<div class="card"><h3>Enviar notificacao</h3>' +
+        '<div class="form-group"><label class="form-label">Titulo</label><input id="notifTitulo" class="form-input"></div>' +
+        '<div class="form-group"><label class="form-label">Mensagem</label><textarea id="notifMensagem" class="form-input" rows="4"></textarea></div>' +
+        '<div class="form-group"><label class="form-label">Destinatarios</label><select id="notifDestinatarios" class="form-input"><option value="todos">Todos</option><option value="clientes">Clientes</option><option value="admin">Admins</option></select></div>' +
+        '<div class="form-group"><label class="form-label">Tipo</label><select id="notifTipo" class="form-input"><option value="info">Informacao</option><option value="success">Promocao</option><option value="warning">Aviso</option><option value="danger">Urgente</option></select></div>' +
+        '<div class="form-group"><label class="form-label">Vincular item da loja</label><select id="notifProduto" class="form-input">' + options + '</select></div>' +
+        '<label style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;"><input id="notifEmail" type="checkbox"> Enviar tambem por email</label>' +
+        '<button class="btn btn-primary" onclick="JW.enviarNotificacaoAdmin()"><i class="fas fa-paper-plane"></i> Enviar notificacao</button>' +
+      '</div>' +
+      '<div class="card"><h3>Mensagens de clientes</h3>' + JW.renderConversasAdmin(conversas) + '</div>' +
+      '<div class="card"><h3>Historico de notificacoes</h3>' + JW.renderHistoricoNotificacoes(historico) + '</div>' +
+      '</div>'
+    );
+  };
+
+  JW.carregarAdmin = JW.carregarMensagensDiretas;
+
+  JW.renderConversasAdmin = function(conversas) {
+    if (!conversas || !conversas.length) return '<p class="text-muted">Nenhuma conversa iniciada.</p>';
+    var html = '<div class="list">';
+    for (var i = 0; i < conversas.length; i++) {
+      var c = conversas[i];
+      html += '<div class="list-item">' +
+        '<div><strong>' + JW.escapeHTML(c.clienteNome || c.clienteEmail) + '</strong><div class="text-muted">' + JW.escapeHTML(c.ultimaData || "") + '</div><div>' + JW.escapeHTML(c.ultimaMensagem || "") + '</div></div>' +
+        '<button class="btn btn-primary btn-sm" onclick="JW.abrirConversaAdmin(' + JW.attrJs(c.clienteEmail) + ')"><i class="fas fa-comments"></i> Responder</button>' +
+      '</div>';
+    }
+    return html + '</div>';
+  };
+
+  JW.abrirConversaAdmin = async function(clienteEmail) {
+    JW.chatClienteAtual = clienteEmail;
+    JW.mostrarLoading("Carregando conversa...");
+    try {
+      var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", clienteEmail);
+      JW.esconderLoading();
+      JW.abrirModalSistema(
+        '<i class="fas fa-comments"></i> Conversa',
+        '<div class="chat-history" id="chatHistoryAdmin">' + JW.renderMensagensChat((conversa && conversa.mensagens) || []) + '</div>' +
+        '<textarea id="chatMensagemAdmin" class="form-input" rows="3" placeholder="Responder ao cliente"></textarea>',
+        '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">' +
+          '<button class="btn btn-primary" onclick="JW.enviarMensagemAdmin()">Enviar resposta</button>' +
+          '<button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Fechar</button>' +
+        '</div>'
+      );
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao abrir conversa: " + (error.message || error), "error");
+    }
+  };
+
+  JW.enviarMensagemAdmin = async function() {
+    var msg = (document.getElementById("chatMensagemAdmin") || {}).value || "";
+    if (!msg.trim()) {
+      JW.toast("Digite uma resposta.", "error");
+      return;
+    }
+    JW.mostrarLoading("Enviando resposta...");
+    try {
+      await JW.chamarGoogleScript("enviarMensagemChatV3", {
+        email: JW.usuarioLogado.email,
+        usuario: JW.usuarioLogado.usuario,
+        remetenteTipo: "Administrador",
+        clienteEmail: JW.chatClienteAtual,
+        mensagem: msg
+      });
+      var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", JW.chatClienteAtual);
+      JW.esconderLoading();
+      var campo = document.getElementById("chatMensagemAdmin");
+      var hist = document.getElementById("chatHistoryAdmin");
+      if (campo) campo.value = "";
+      if (hist) hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
+      JW.toast("Resposta enviada.", "success");
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao responder: " + (error.message || error), "error");
+    }
+  };
+
+  JW.enviarNotificacaoAdmin = async function() {
+    var produtoId = (document.getElementById("notifProduto") || {}).value || "";
+    var dados = {
+      titulo: (document.getElementById("notifTitulo") || {}).value || "",
+      mensagem: (document.getElementById("notifMensagem") || {}).value || "",
+      destinatarios: (document.getElementById("notifDestinatarios") || {}).value || "todos",
+      tipo: (document.getElementById("notifTipo") || {}).value || "info",
+      enviarEmail: !!((document.getElementById("notifEmail") || {}).checked),
+      acao: produtoId ? "tab:produtos?produto=" + produtoId : "",
+      icone: produtoId ? "fas fa-shopping-cart" : "fas fa-bell"
+    };
+
+    if (!dados.titulo.trim() || !dados.mensagem.trim()) {
+      JW.toast("Informe titulo e mensagem.", "error");
+      return;
+    }
+
+    JW.mostrarLoading("Enviando notificacao...");
+    try {
+      var resultado = await JW.chamarGoogleScript("enviarNotificacaoV3", dados);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Notificacao enviada.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) {
+        await JW.carregarMensagensDiretas();
+        await JW.carregarNotificacoes();
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao enviar notificacao: " + (error.message || error), "error");
+    }
+  };
+
+  JW.renderHistoricoNotificacoes = function(lista) {
+    if (!lista || !lista.length) return '<p class="text-muted">Nenhuma notificacao enviada.</p>';
+    var html = '<div class="list">';
+    for (var i = 0; i < lista.length; i++) {
+      var n = lista[i];
+      html += '<div class="list-item"><div><strong>' + JW.escapeHTML(n.titulo || "") + '</strong><div class="text-muted">' + JW.escapeHTML(n.dataEnvio || "") + ' | ' + JW.escapeHTML(n.destinatarios || "") + '</div><div>' + JW.escapeHTML(n.mensagem || "") + '</div></div><div style="display:flex;gap:.5rem;align-items:center;"><span class="badge badge-info">' + JW.escapeHTML(n.tipo || "info") + '</span><button class="btn btn-danger btn-sm" onclick="JW.excluirNotificacaoAdmin(' + JW.attrJs(n.id) + ')">Cancelar</button></div></div>';
+    }
+    return html + '</div>';
+  };
+
+  JW.excluirNotificacaoAdmin = async function(id) {
+    JW.abrirModalSistema(
+      '<i class="fas fa-ban"></i> Cancelar notificacao',
+      '<p>Deseja cancelar/remover esta notificacao do historico?</p><input type="hidden" id="notificacaoExcluirId" value="' + JW.escapeAttr(id) + '">',
+      '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;"><button class="btn btn-danger" onclick="JW.confirmarExcluirNotificacaoAdmin()">Cancelar notificacao</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Voltar</button></div>'
+    );
+  };
+
+  JW.confirmarExcluirNotificacaoAdmin = async function() {
+    var id = (document.getElementById("notificacaoExcluirId") || {}).value || "";
+    JW.fecharModalSistema();
+    JW.mostrarLoading("Removendo notificacao...");
+    try {
+      var resultado = await JW.chamarGoogleScript("excluirNotificacaoV3", id);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Notificacao removida.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) await JW.carregarMensagensDiretas();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao remover notificacao: " + (error.message || error), "error");
+    }
+  };
+
+  JW.carregarNotificacoes = async function() {
+    if (!JW.usuarioLogado || !JW.usuarioLogado.email) return;
+    try {
+      var resultado = await JW.chamarGoogleScript("getNotificacoesUsuarioV3", JW.usuarioLogado.email);
+      JW.notificacoes = resultado && resultado.itens ? resultado.itens : [];
+      JW.renderNotificacoes();
+      JW.atualizarBadgeChat();
+    } catch (error) {
+      JW.notificacoes = [];
+      JW.renderNotificacoes();
+      JW.atualizarBadgeChat();
+    }
+  };
+
+  JW.atualizarBadgeChat = function() {
+    var badge = document.getElementById("supportChatBadge");
+    if (!badge) return;
+    var total = 0;
+    for (var i = 0; i < JW.notificacoes.length; i++) {
+      var n = JW.notificacoes[i] || {};
+      if (!n.lida && String(n.acao || "").indexOf("chat:") === 0) total++;
+    }
+    badge.textContent = total;
+    badge.classList.toggle("d-none", total === 0);
+  };
+
+  JW.renderNotificacoes = function() {
+    var count = document.getElementById("notificationsCount");
+    var list = document.getElementById("notificationsList");
+    var naoLidas = 0;
+    for (var i = 0; i < JW.notificacoes.length; i++) if (!JW.notificacoes[i].lida) naoLidas++;
+    if (count) {
+      count.textContent = naoLidas;
+      count.classList.toggle("d-none", naoLidas === 0);
+    }
+    if (!list) return;
+    if (!JW.notificacoes.length) {
+      list.innerHTML = '<div class="text-center" style="padding:2rem;color:var(--text-muted);"><i class="fas fa-bell-slash" style="font-size:2rem;margin-bottom:.5rem;"></i><p>Nenhuma notificacao</p></div>';
+      return;
+    }
+
+    var html = "";
+    for (var j = 0; j < JW.notificacoes.length; j++) {
+      var n = JW.notificacoes[j];
+      html += '<div class="notification-item" style="padding:1rem;border-bottom:1px solid var(--border);cursor:pointer;' + (!n.lida ? "background:#f8fbff;" : "") + '" onclick="JW.abrirNotificacao(' + JW.attrJs(n.id) + ')">' +
+        '<strong>' + JW.escapeHTML(n.titulo || "") + '</strong>' +
+        '<div class="text-muted">' + JW.escapeHTML(n.dataEnvio || "") + '</div>' +
+        '<div>' + JW.escapeHTML(n.mensagem || "") + '</div>' +
+      '</div>';
+    }
+    list.innerHTML = html;
+  };
+
+  JW.toggleNotifications = async function() {
+    var dropdown = document.getElementById("notificationsDropdown");
+    if (!dropdown) return;
+    var vaiAbrir = !dropdown.classList.contains("show");
+    dropdown.classList.toggle("show", vaiAbrir);
+    if (vaiAbrir) JW.carregarNotificacoes();
+  };
+
+  JW.fecharNotificacoes = function() {
+    var dropdown = document.getElementById("notificationsDropdown");
+    if (dropdown) dropdown.classList.remove("show");
+  };
+
+  JW.textoAcaoNotificacao = function(notif) {
+    var acao = notif && notif.acao ? String(notif.acao) : "";
+    if (acao.indexOf("tab:produtos") === 0) return "Ver produto na loja";
+    if (acao.indexOf("chat:") === 0) return "Abrir conversa";
+    return "Abrir destino";
+  };
+
+  JW.abrirNotificacao = function(id) {
+    var notif = null;
+    for (var i = 0; i < JW.notificacoes.length; i++) {
+      if (String(JW.notificacoes[i].id) === String(id)) notif = JW.notificacoes[i];
+    }
+    if (!notif) return;
+    JW.abrirModalSistema(
+      '<i class="' + JW.escapeAttr(notif.icone || "fas fa-bell") + '"></i> ' + JW.escapeHTML(notif.titulo || "Notificacao"),
+      '<div class="notification-detail">' +
+        '<p class="text-muted">' + JW.escapeHTML(notif.dataEnvio || "") + '</p>' +
+        '<p>' + JW.escapeHTML(notif.mensagem || "") + '</p>' +
+        (notif.acao ? '<button class="notification-action-link" onclick="JW.executarAcaoNotificacao(' + JW.attrJs(notif.id) + ')"><i class="fas fa-arrow-right"></i> ' + JW.escapeHTML(JW.textoAcaoNotificacao(notif)) + '</button>' : '') +
+      '</div>',
+      '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">' +
+        '<button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Fechar</button>' +
+      '</div>'
+    );
+    notif.lida = true;
+    JW.renderNotificacoes();
+    JW.atualizarBadgeChat();
+    JW.chamarGoogleScript("marcarNotificacaoLidaV3", id, JW.usuarioLogado.email)
+      .then(function() { return JW.carregarNotificacoes(); })
+      .catch(function() {});
+  };
+
+  JW.executarAcaoNotificacao = function(id) {
+    var notif = null;
+    for (var i = 0; i < JW.notificacoes.length; i++) {
+      if (String(JW.notificacoes[i].id) === String(id)) notif = JW.notificacoes[i];
+    }
+    if (!notif || !notif.acao) return;
+    JW.fecharModalSistema();
+    JW.fecharNotificacoes();
+    if (notif.acao.indexOf("chat:") === 0) {
+      JW.abrirChatCliente();
+      return;
+    }
+    if (notif.acao.indexOf("tab:") === 0) JW.abrirTab(notif.acao.replace("tab:", ""));
+    else window.open(notif.acao, "_blank");
+  };
+
+  JW.marcarTodasLidas = async function() {
+    if (!JW.usuarioLogado) return;
+    try {
+      await JW.chamarGoogleScript("marcarTodasNotificacoesLidasV3", JW.usuarioLogado.email);
+      await JW.carregarNotificacoes();
+    } catch (error) {
+      JW.toast("Nao foi possivel marcar notificacoes.", "error");
+    }
+  };
+
+  JW.toggleMobileMenu = function() {
+    var sidebar = document.getElementById("sidebar");
+    if (sidebar) sidebar.classList.toggle("show");
+  };
+
+  JW.abrirPerfil = function() {
+    JW.carregarPerfil();
+  };
+
+  JW.carregarPerfil = async function() {
+    if (!JW.usuarioLogado) return;
+    JW.mostrarLoading("Carregando perfil...");
+    try {
+      var perfil = await JW.chamarGoogleScript("getPerfilUsuarioV3", JW.usuarioLogado.email);
+      JW.esconderLoading();
+      perfil = perfil || {};
+      JW.abrirModalSistema(
+        '<i class="fas fa-user-circle"></i> Meu perfil',
+        '<div class="profile-modal-body">' +
+        '<div class="profile-grid">' +
+          '<div class="profile-field"><span>Nome</span><strong>' + JW.escapeHTML(perfil.usuario || JW.usuarioLogado.usuario || "") + '</strong></div>' +
+          '<div class="profile-field"><span>E-mail</span><strong>' + JW.escapeHTML(perfil.email || JW.usuarioLogado.email || "") + '</strong></div>' +
+          '<div class="profile-field profile-field-locked" title="Necessario alterar autorizacao de telefone, contactar a equipe JW Piscinas."><span>Telefone</span><strong>' + JW.escapeHTML(perfil.telefone || JW.usuarioLogado.telefone || "Nao informado") + '</strong><i class="fas fa-lock"></i></div>' +
+        '</div>' +
+        '<div class="profile-edit-grid">' +
+          '<div class="form-group"><label class="form-label">Bairro</label><input id="perfilBairro" class="form-input profile-input" value="' + JW.escapeAttr(perfil.bairro || JW.usuarioLogado.bairro || "") + '" placeholder="Inserir bairro"></div>' +
+          '<div class="form-group"><label class="form-label">Rua, numero e cidade</label><textarea id="perfilEndereco" class="form-input profile-input" rows="3" placeholder="Inserir rua, numero e cidade">' + JW.escapeHTML(perfil.endereco || JW.usuarioLogado.endereco || "") + '</textarea></div>' +
+        '</div>' +
+        '</div>',
+        '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap;">' +
+          '<button class="btn btn-primary" onclick="JW.salvarEnderecoPerfil()">Salvar</button>' +
+        '</div>'
+      );
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao carregar perfil: " + (error.message || error), "error");
+    }
+  };
+
+  JW.renderMensagensChat = function(mensagens) {
+    if (!mensagens || !mensagens.length) return '<p class="text-muted">Nenhuma mensagem ainda.</p>';
+    var html = "";
+    for (var i = 0; i < mensagens.length; i++) {
+      var m = mensagens[i];
+      var minha = JW.usuarioLogado && m.remetenteEmail === JW.usuarioLogado.email;
+      html += '<div class="chat-message ' + (minha ? "mine" : "theirs") + '"><strong>' + JW.escapeHTML(m.remetenteNome || m.remetenteTipo || "") + '</strong><p>' + JW.escapeHTML(m.mensagem || "") + '</p><span>' + JW.escapeHTML(m.dataHora || "") + '</span></div>';
+    }
+    return html;
+  };
+
+  JW.salvarEnderecoPerfil = async function() {
+    var endereco = (document.getElementById("perfilEndereco") || {}).value || "";
+    var bairro = (document.getElementById("perfilBairro") || {}).value || "";
+    JW.mostrarLoading("Salvando endereco...");
+    try {
+      var resultado = await JW.chamarGoogleScript("atualizarEnderecoUsuarioV3", JW.usuarioLogado.email, endereco, bairro);
+      JW.esconderLoading();
+      if (resultado && resultado.success) {
+        JW.usuarioLogado.endereco = endereco;
+        JW.usuarioLogado.bairro = bairro;
+      }
+      JW.toast(resultado && resultado.message ? resultado.message : "Endereco atualizado.", resultado && resultado.success ? "success" : "error");
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao salvar endereco: " + (error.message || error), "error");
+    }
+  };
+
+  JW.enviarMensagemPerfil = async function() {
+    return JW.enviarMensagemChatCliente();
+  };
+
+  JW.renderChatWidget = function() {
+    var existente = document.getElementById("supportChatWidget");
+    if (!JW.usuarioLogado || JW.isAdmin()) {
+      if (existente && existente.parentNode) existente.parentNode.removeChild(existente);
+      return;
+    }
+    if (existente) return;
+    var widget = document.createElement("div");
+    widget.id = "supportChatWidget";
+    widget.className = "support-chat-widget";
+    widget.innerHTML =
+      '<button class="support-chat-button" onclick="JW.abrirChatCliente()" title="Falar com a equipe JW Piscinas"><i class="fas fa-comments"></i><span id="supportChatBadge" class="support-chat-badge d-none">1</span></button>' +
+      '<div class="support-chat-window" id="supportChatWindow">' +
+        '<div class="support-chat-header"><strong>Suporte JW Piscinas</strong><button onclick="JW.fecharChatCliente()" title="Fechar">&times;</button></div>' +
+        '<div class="chat-history" id="chatHistoryCliente"><p class="text-muted">Abra para carregar a conversa.</p></div>' +
+        '<div class="support-chat-compose"><textarea id="chatMensagemCliente" class="form-input" rows="3" placeholder="Digite sua mensagem"></textarea><button class="btn btn-primary" onclick="JW.enviarMensagemChatCliente()"><i class="fas fa-paper-plane"></i></button></div>' +
+      '</div>';
+    document.body.appendChild(widget);
+  };
+
+  JW.abrirChatCliente = async function() {
+    JW.renderChatWidget();
+    var widget = document.getElementById("supportChatWidget");
+    var hist = document.getElementById("chatHistoryCliente");
+    if (widget) widget.classList.add("open");
+    if (!JW.usuarioLogado || !hist) return;
+    hist.innerHTML = '<p class="text-muted">Carregando conversa...</p>';
+    try {
+      var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", JW.usuarioLogado.email);
+      hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
+      hist.scrollTop = hist.scrollHeight;
+      for (var i = 0; i < JW.notificacoes.length; i++) {
+        var n = JW.notificacoes[i] || {};
+        if (!n.lida && String(n.acao || "").indexOf("chat:") === 0) {
+          n.lida = true;
+          JW.chamarGoogleScript("marcarNotificacaoLidaV3", n.id, JW.usuarioLogado.email).catch(function() {});
+        }
+      }
+      JW.renderNotificacoes();
+      JW.atualizarBadgeChat();
+    } catch (error) {
+      hist.innerHTML = '<p class="text-muted">Nao foi possivel carregar a conversa.</p>';
+    }
+  };
+
+  JW.fecharChatCliente = function() {
+    var widget = document.getElementById("supportChatWidget");
+    if (widget) widget.classList.remove("open");
+  };
+
+  JW.enviarMensagemChatCliente = async function() {
+    var msg = (document.getElementById("chatMensagemCliente") || {}).value || "";
+    if (!msg.trim()) {
+      JW.toast("Digite a mensagem.", "error");
+      return;
+    }
+    var campo = document.getElementById("chatMensagemCliente");
+    var hist = document.getElementById("chatHistoryCliente");
+    if (campo) campo.disabled = true;
+    try {
+      var resultado = await JW.chamarGoogleScript("enviarMensagemChatV3", {
+        email: JW.usuarioLogado.email,
+        usuario: JW.usuarioLogado.usuario,
+        remetenteTipo: JW.usuarioLogado.tipo || "Cliente",
+        mensagem: msg
+      });
+      var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", JW.usuarioLogado.email);
+      if (campo) campo.value = "";
+      if (hist) hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
+      if (hist) hist.scrollTop = hist.scrollHeight;
+      JW.toast(resultado && resultado.message ? resultado.message : "Mensagem enviada.", resultado && resultado.success ? "success" : "error");
+    } catch (error) {
+      JW.toast("Erro ao enviar mensagem: " + (error.message || error), "error");
+    } finally {
+      if (campo) campo.disabled = false;
+    }
+  };
+
+  JW.logout = function() {
+    JW.usuarioLogado = null;
+    document.body.classList.remove("logged-in");
+    document.body.classList.remove("admin-mode");
+    document.body.classList.remove("sidebar-collapsed");
+    var chatWidget = document.getElementById("supportChatWidget");
+    if (chatWidget && chatWidget.parentNode) chatWidget.parentNode.removeChild(chatWidget);
+    var loginScreen = document.getElementById("loginScreen");
+    var mainApp = document.getElementById("mainApp");
+    if (mainApp) mainApp.classList.add("d-none");
+    if (loginScreen) loginScreen.classList.remove("d-none");
+  };
+
+  window.addEventListener("load", function() {
+    var overlay = document.getElementById("loadingOverlay");
+    if (overlay) overlay.classList.remove("active");
+
+    var btnLogin = document.getElementById("btnLogin");
+    var btnRegister = document.getElementById("btnRegister");
+    var tabLogin = document.getElementById("tabLoginBtn");
+    var tabRegister = document.getElementById("tabRegisterBtn");
+    var btnLogout = document.getElementById("btnLogout");
+    var loginUsuario = document.getElementById("loginUsuario");
+    var loginSenha = document.getElementById("loginSenha");
+    var backdrop = document.getElementById("modalBackdrop");
+
+    if (btnLogin) {
+      btnLogin.dataset.bound = "bootstrap";
+      btnLogin.addEventListener("click", JW.fazerLogin);
+    }
+    if (btnRegister) {
+      btnRegister.dataset.bound = "bootstrap";
+      btnRegister.addEventListener("click", JW.fazerCadastro);
+    }
+    if (tabLogin) tabLogin.addEventListener("click", JW.mostrarLoginForm);
+    if (tabRegister) tabRegister.addEventListener("click", JW.mostrarRegisterForm);
+    if (btnLogout) btnLogout.addEventListener("click", JW.logout);
+    if (loginUsuario) loginUsuario.addEventListener("keydown", function(e) { if (e.key === "Enter") JW.fazerLogin(); });
+    if (loginSenha) loginSenha.addEventListener("keydown", function(e) { if (e.key === "Enter") JW.fazerLogin(); });
+    if (backdrop) backdrop.addEventListener("click", function() {
+      JW.fecharModalSistema();
+      JW.fecharModal("modalComprar");
+      JW.fecharModal("modalRecuperacao");
+      JW.fecharModal("modalAlterarSenha");
+    });
+    document.addEventListener("click", function(e) {
+      var panel = document.querySelector(".notifications-panel");
+      if (panel && !panel.contains(e.target)) JW.fecharNotificacoes();
+    });
+  });
+})();
+</script>

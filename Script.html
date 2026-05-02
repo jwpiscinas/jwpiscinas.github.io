@@ -1,0 +1,2761 @@
+<script>
+window.__jwScriptStarted = true;
+console.log("🚀 SCRIPT CARREGADO - Data: " + new Date().toLocaleString());
+console.log("🚀 google.script.run disponível:", typeof google !== 'undefined' ? "SIM" : "NÃO");
+
+var JW = JW || {};
+var JW = JW || {};
+
+
+
+(function() {
+    'use strict';
+
+    JW.usuarioLogado = null;
+    JW.produtoAtual = null;
+    JW.isLoading = false;
+    JW.recoveryData = { email: '', codigo: '' };
+    JW.notificacoes = [];
+    JW.orcamentoAnexo = null;
+
+    // ============================================
+    // UTILIDADES
+    // ============================================
+    
+    JW.mostrarLoading = function(mensagem) {
+        mensagem = mensagem || 'Carregando...';
+        if (JW.isLoading) return;
+        JW.isLoading = true;
+        var loadingText = document.getElementById('loadingText');
+        if (loadingText) loadingText.textContent = mensagem;
+        var overlay = document.getElementById('loadingOverlay');
+        if (overlay) overlay.classList.add('active');
+    };
+
+    JW.mostrarAvisoSistema = function(mensagem, tipo) {
+        tipo = tipo || 'info';
+        var toast = document.getElementById('systemToast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'systemToast';
+            toast.className = 'system-toast';
+            document.body.appendChild(toast);
+        }
+        toast.className = 'system-toast system-toast-' + tipo + ' active';
+        toast.textContent = (mensagem || '').toString().replace(/^[✅❌]\s*/, '');
+        clearTimeout(JW.toastTimer);
+        JW.toastTimer = setTimeout(function() {
+            toast.classList.remove('active');
+        }, 4500);
+    };
+
+    window.alert = function(mensagem) {
+        var texto = (mensagem || '').toString();
+        var tipo = texto.indexOf('❌') !== -1 || texto.toLowerCase().indexOf('erro') !== -1 ? 'error' : 'success';
+        JW.mostrarAvisoSistema(texto, tipo);
+    };
+
+    JW.esconderLoading = function() {
+        JW.isLoading = false;
+        setTimeout(function() {
+            var overlay = document.getElementById('loadingOverlay');
+            if (overlay) overlay.classList.remove('active');
+        }, 300);
+    };
+
+    JW.mostrarMensagem = function(elemento, mensagem, tipo) {
+        tipo = tipo || 'success';
+        var el = document.getElementById(elemento);
+        if (!el) return;
+        el.textContent = mensagem;
+        el.className = 'alert alert-' + tipo;
+        el.style.display = 'block';
+        if (tipo === 'success') {
+            setTimeout(function() { el.style.display = 'none'; }, 5000);
+        }
+    };
+
+    JW.mostrarModal = function(modalId) {
+        var modal = document.getElementById(modalId);
+        var backdrop = document.getElementById('modalBackdrop');
+        if (modal) {
+            modal.classList.remove('d-none');
+            modal.classList.add('active');
+        }
+        if (backdrop) {
+            backdrop.classList.remove('d-none');
+            backdrop.classList.add('active');
+        }
+    };
+
+    JW.fecharModal = function(modalId) {
+        var modal = document.getElementById(modalId);
+        var backdrop = document.getElementById('modalBackdrop');
+        if (modal) {
+            modal.classList.remove('active');
+            modal.classList.add('d-none');
+        }
+        if (backdrop) {
+            backdrop.classList.remove('active');
+            backdrop.classList.add('d-none');
+        }
+    };
+
+    JW.toggleMobileMenu = function() {
+        document.body.classList.toggle('sidebar-open');
+    };
+
+    JW.fecharSidebarMobile = function() {
+        if (window.innerWidth <= 768) {
+            document.body.classList.remove('sidebar-open');
+        }
+    };
+
+    JW.formatarTelefone = function(input) {
+        var value = input.value.replace(/\D/g, '');
+        if (value.length > 11) value = value.substring(0, 11);
+        if (value.length > 10) {
+            value = value.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+        } else if (value.length > 6) {
+            value = value.replace(/^(\d{2})(\d{4})(\d{0,4})$/, '($1) $2-$3');
+        } else if (value.length > 2) {
+            value = value.replace(/^(\d{2})(\d{0,5})$/, '($1) $2');
+        } else if (value.length > 0) {
+            value = value.replace(/^(\d{0,2})/, '($1');
+        }
+        input.value = value;
+    };
+
+    JW.chamarGoogleScript = function(funcao) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        return new Promise(function(resolve, reject) {
+            google.script.run
+                .withSuccessHandler(resolve)
+                .withFailureHandler(reject)
+                [funcao].apply(null, args);
+        });
+    };
+
+    JW.extrairLista = function(retorno, chaves) {
+        if (Array.isArray(retorno)) return retorno;
+        if (!retorno || typeof retorno !== 'object') return [];
+        chaves = chaves || ['itens', 'lista', 'data', 'historico', 'notificacoes'];
+        for (var i = 0; i < chaves.length; i++) {
+            if (Array.isArray(retorno[chaves[i]])) return retorno[chaves[i]];
+        }
+        return [];
+    };
+
+    JW.formatarMoeda = function(valor) {
+        var texto = (valor || 0).toString().replace('R$', '').replace(/\s/g, '');
+        if (texto.indexOf(',') !== -1) texto = texto.replace(/\./g, '').replace(',', '.');
+        var numero = typeof valor === 'number' ? valor : parseFloat(texto) || 0;
+        return 'R$ ' + numero.toFixed(2).replace('.', ',');
+    };
+
+    JW.escapeHTML = function(valor) {
+        return (valor || '').toString()
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    };
+
+    JW.textoSeguro = function(valor, padrao) {
+        if (valor === null || valor === undefined || valor === '') return padrao || '';
+        return valor;
+    };
+
+    // ============================================
+    // MENU DINÂMICO
+    // ============================================
+
+    JW.carregarMenuDinamico = function() {
+        var menuContainer = document.getElementById('dynamicMenu');
+        if (!menuContainer) return;
+        
+        var isAdmin = JW.usuarioLogado && JW.usuarioLogado.tipo === "Administrador";
+        var menuHTML = '';
+        
+        // Menu base para todos
+        menuHTML += `
+            <a href="#" class="nav-item" data-tab="inicio">
+                <i class="fas fa-tachometer-alt"></i>
+                <span>${isAdmin ? 'Dashboard' : 'Início'}</span>
+            </a>
+            <a href="#" class="nav-item" data-tab="solicitar-orcamento">
+                <i class="fas fa-file-invoice-dollar"></i>
+                <span>Orçamentos</span>
+            </a>
+            <a href="#" class="nav-item" data-tab="produtos">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Produtos</span>
+            </a>
+            <a href="#" class="nav-item" data-tab="historico">
+                <i class="fas fa-history"></i>
+                <span>Histórico</span>
+            </a>
+            <a href="#" class="nav-item" data-tab="manuais">
+                <i class="fas fa-book"></i>
+                <span>Manuais</span>
+            </a>
+        `;
+        
+        // Menu ADMIN com itens em desenvolvimento
+        if (isAdmin) {
+            menuHTML += `
+                <a href="#" class="nav-item dev-mode" data-tab="tecnicos">
+                    <i class="fas fa-users"></i>
+                    <span>Técnicos</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="ordem-servico">
+                    <i class="fas fa-clipboard-list"></i>
+                    <span>Pendências</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="relatorios">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Relatórios</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="admin">
+                    <i class="fas fa-cog"></i>
+                    <span>Admin</span>
+                </a>
+            `;
+        }
+        
+        menuContainer.innerHTML = menuHTML;
+        
+        var navItems = document.querySelectorAll('.nav-item');
+        for (var i = 0; i < navItems.length; i++) {
+            navItems[i].addEventListener('click', function(e) {
+                e.preventDefault();
+                if (!JW.isLoading) {
+                    JW.abrirTab(this.dataset.tab);
+                }
+            });
+        }
+    };
+
+        // ============================================
+    // LOGIN E CADASTRO
+    // ============================================
+
+    JW.fazerLogin = async function() {
+        var usuario = document.getElementById('loginUsuario').value.trim();
+        var senha = document.getElementById('loginSenha').value;
+
+        if (!usuario || !senha) {
+            JW.mostrarMensagem('loginMessage', 'Preencha todos os campos!', 'error');
+            return;
+        }
+
+        JW.mostrarLoading('Entrando no sistema...');
+
+        try {
+            var resultado = await JW.chamarGoogleScript('verificarLogin', { usuario: usuario, senha: senha });
+            JW.esconderLoading();
+            
+            if (resultado && resultado.success) {
+                JW.mostrarMensagem('loginMessage', '✅ ' + resultado.message, 'success');
+                JW.usuarioLogado = resultado;
+                
+                document.getElementById('sidebarUserName').textContent = JW.usuarioLogado.usuario;
+                document.getElementById('sidebarUserRole').textContent = JW.usuarioLogado.tipo || 'Cliente';
+                
+                document.getElementById('loginUsuario').value = '';
+                document.getElementById('loginSenha').value = '';
+                
+                setTimeout(function() { JW.entrarNoSistema(); }, 500);
+            } else {
+                JW.mostrarMensagem('loginMessage', '❌ ' + (resultado ? resultado.message : 'Erro ao fazer login'), 'error');
+            }
+        } catch (error) {
+            JW.esconderLoading();
+            JW.mostrarMensagem('loginMessage', '❌ Erro: ' + error.message, 'error');
+        }
+    };
+
+    JW.fazerCadastro = async function() {
+        var usuario = document.getElementById('registerUsuario').value.trim();
+        var email = document.getElementById('registerEmail').value.trim();
+        var senha = document.getElementById('registerSenha').value;
+        var confirmacaoSenha = document.getElementById('registerConfirmacaoSenha').value;
+        var telefone = document.getElementById('registerTelefone').value.trim();
+
+        if (!usuario || !email || !senha || !confirmacaoSenha || !telefone) {
+            JW.mostrarMensagem('registerMessage', 'Preencha todos os campos!', 'error');
+            return;
+        }
+
+        if (usuario.length < 3) {
+            JW.mostrarMensagem('registerMessage', 'Nome de usuário deve ter pelo menos 3 caracteres', 'error');
+            return;
+        }
+
+        if (senha.length < 4) {
+            JW.mostrarMensagem('registerMessage', 'Senha deve ter pelo menos 4 caracteres', 'error');
+            return;
+        }
+
+        if (senha.startsWith('0')) {
+            JW.mostrarMensagem('registerMessage', 'A senha não pode começar com zero!', 'error');
+            return;
+        }
+
+        if (senha !== confirmacaoSenha) {
+            JW.mostrarMensagem('registerMessage', 'As senhas não coincidem!', 'error');
+            return;
+        }
+
+        var telefoneNumeros = telefone.replace(/\D/g, '');
+        if (telefoneNumeros.length < 10) {
+            JW.mostrarMensagem('registerMessage', 'Telefone inválido! Digite DDD + número', 'error');
+            return;
+        }
+
+        JW.mostrarLoading('Criando sua conta...');
+
+        try {
+            var resultado = await JW.chamarGoogleScript('cadastrarUsuario', {
+                usuario: usuario, email: email, senha: senha,
+                confirmacaoSenha: confirmacaoSenha, telefone: telefone
+            });
+            JW.esconderLoading();
+            
+            if (resultado && resultado.success) {
+                JW.mostrarMensagem('registerMessage', '✅ ' + resultado.message, 'success');
+                document.getElementById('loginUsuario').value = usuario;
+                document.getElementById('loginSenha').value = senha;
+                setTimeout(function() { JW.mostrarLoginForm(); JW.fazerLogin(); }, 1500);
+            } else {
+                JW.mostrarMensagem('registerMessage', '❌ ' + (resultado ? resultado.message : 'Erro ao cadastrar'), 'error');
+            }
+        } catch (error) {
+            JW.esconderLoading();
+            JW.mostrarMensagem('registerMessage', '❌ Erro: ' + error.message, 'error');
+        }
+    };
+
+    JW.validarSenhaCadastro = function() {
+        var senha = document.getElementById('registerSenha').value;
+        var feedback = document.getElementById('senhaFeedback');
+        if (!feedback) return true;
+        if (senha.startsWith('0')) {
+            feedback.innerHTML = '❌ A senha não pode começar com zero!';
+            feedback.style.color = '#dc3545';
+            return false;
+        }
+        if (senha.length < 4) {
+            feedback.innerHTML = '⚠️ A senha deve ter pelo menos 4 caracteres';
+            feedback.style.color = '#ffc107';
+            return false;
+        }
+        feedback.innerHTML = '✅ Senha válida';
+        feedback.style.color = '#28a745';
+        return true;
+    };
+
+    JW.mostrarLoginForm = function() {
+        var loginForm = document.getElementById('loginForm');
+        var registerForm = document.getElementById('registerForm');
+        var tabLogin = document.getElementById('tabLoginBtn');
+        var tabRegister = document.getElementById('tabRegisterBtn');
+        if (loginForm) loginForm.classList.remove('d-none');
+        if (registerForm) registerForm.classList.add('d-none');
+        if (tabLogin) tabLogin.classList.add('active');
+        if (tabRegister) tabRegister.classList.remove('active');
+    };
+
+    JW.mostrarRegisterForm = function() {
+        var loginForm = document.getElementById('loginForm');
+        var registerForm = document.getElementById('registerForm');
+        var tabLogin = document.getElementById('tabLoginBtn');
+        var tabRegister = document.getElementById('tabRegisterBtn');
+        if (loginForm) loginForm.classList.add('d-none');
+        if (registerForm) registerForm.classList.remove('d-none');
+        if (tabLogin) tabLogin.classList.remove('active');
+        if (tabRegister) tabRegister.classList.add('active');
+    };
+
+    JW.entrarNoSistema = function() {
+        document.body.classList.add('logged-in');
+        var loginScreen = document.getElementById('loginScreen');
+        var mainApp = document.getElementById('mainApp');
+        if (loginScreen) loginScreen.classList.add('d-none');
+        if (mainApp) mainApp.classList.remove('d-none');
+        document.body.classList.toggle('admin-mode', JW.usuarioLogado.tipo === "Administrador");
+        
+        JW.carregarMenuDinamico();
+        JW.carregarNotificacoes();
+        
+        if (JW.usuarioLogado.tipo === "Administrador") {
+            JW.abrirTab('inicio');
+        } else {
+            JW.abrirTab('inicio');
+        }
+    };
+
+    JW.fazerLogout = function() {
+        document.body.classList.remove('logged-in');
+        document.body.classList.remove('admin-mode');
+        document.body.classList.remove('sidebar-open');
+        JW.usuarioLogado = null;
+        var mainApp = document.getElementById('mainApp');
+        var loginScreen = document.getElementById('loginScreen');
+        if (mainApp) mainApp.classList.add('d-none');
+        if (loginScreen) loginScreen.classList.remove('d-none');
+        JW.mostrarLoginForm();
+        JW.mostrarMensagem('loginMessage', 'Logout realizado com sucesso!', 'success');
+    };
+
+        // ============================================
+    // NAVEGAÇÃO
+    // ============================================
+
+    JW.atualizarNavegacaoAtiva = function(tab) {
+        var items = document.querySelectorAll('.nav-item');
+        for (var i = 0; i < items.length; i++) {
+            items[i].classList.remove('active');
+            if (items[i].dataset.tab === tab) items[i].classList.add('active');
+        }
+        
+        var isAdmin = JW.usuarioLogado && JW.usuarioLogado.tipo === "Administrador";
+        var titles = {
+            'inicio': isAdmin ? 'Dashboard' : 'Início',
+            'solicitar-orcamento': 'Orçamentos',
+            'produtos': 'Produtos',
+            'historico': 'Histórico',
+            'manuais': 'Manuais',
+            'tecnicos': 'Técnicos',
+            'ordem-servico': 'Pendências',
+            'relatorios': 'Relatórios',
+            'admin': 'Administração',
+            'perfil': 'Meu Perfil'
+        };
+        
+        var titleEl = document.getElementById('currentPageTitle');
+        if (titleEl) titleEl.textContent = titles[tab] || 'JW Piscinas';
+    };
+
+    JW.abrirTab = async function(tab) {
+        if (!JW.usuarioLogado || JW.isLoading) return;
+        JW.atualizarNavegacaoAtiva(tab);
+        
+        try {
+            switch(tab) {
+                case 'inicio':
+                    if (JW.usuarioLogado.tipo === "Administrador") {
+                        await JW.carregarDashboardAdmin();
+                    } else {
+                        await JW.carregarInicioCliente();
+                    }
+                    break;
+                case 'solicitar-orcamento':
+                    document.getElementById('mainContent').innerHTML = JW.getTemplateOrcamento();
+                    break;
+                case 'produtos':
+                    await JW.carregarProdutos();
+                    break;
+                case 'historico':
+                    await JW.carregarHistorico();
+                    break;
+                case 'manuais':
+                    await JW.carregarManuais();
+                    break;
+                case 'ordem-servico':
+                    if (JW.usuarioLogado.tipo === "Administrador") {
+                        await JW.carregarCentralAdmin();
+                    } else {
+                        document.getElementById('mainContent').innerHTML = JW.getTemplateAcessoNegado();
+                    }
+                    break;
+                case 'relatorios':
+                    if (JW.usuarioLogado.tipo === "Administrador") {
+                        await JW.carregarRelatorios();
+                    } else {
+                        document.getElementById('mainContent').innerHTML = JW.getTemplateAcessoNegado();
+                    }
+                    break;
+                case 'tecnicos':
+                    JW.mostrarModuloEmDesenvolvimento(tab);
+                    break;
+                case 'admin':
+                    if (JW.usuarioLogado.tipo === "Administrador") {
+                        await JW.carregarAdmin();
+                    } else {
+                        document.getElementById('mainContent').innerHTML = JW.getTemplateAcessoNegado();
+                    }
+                    break;
+                case 'perfil':
+                    await JW.carregarPerfil();
+                    break;
+                default:
+                    if (JW.usuarioLogado.tipo === "Administrador") {
+                        await JW.carregarDashboardAdmin();
+                    } else {
+                        await JW.carregarInicioCliente();
+                    }
+            }
+            JW.fecharSidebarMobile();
+        } catch (error) {
+            console.error('Erro ao carregar tab:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro(tab, error.message);
+            JW.fecharSidebarMobile();
+        }
+    };
+
+    // ============================================
+    // MÓDULO EM DESENVOLVIMENTO
+    // ============================================
+
+    JW.mostrarModuloEmDesenvolvimento = function(tab) {
+        var titulos = {
+            'tecnicos': 'Técnicos',
+            'ordem-servico': 'Ordem de Serviço',
+            'relatorios': 'Relatórios'
+        };
+        
+        var nomeModulo = titulos[tab] || 'Módulo';
+        
+        document.getElementById('mainContent').innerHTML = `
+            <div class="dev-message">
+                <i class="fas fa-code"></i>
+                <h3>Módulo em Desenvolvimento</h3>
+                <p>O módulo de ${nomeModulo} estará disponível em breve. Você poderá visualizar métricas de faturamento, desempenho de técnicos e mais.</p>
+                <div class="mt-4">
+                    <i class="fas fa-spinner fa-pulse"></i> Em breve novidades!
+                </div>
+            </div>
+        `;
+    };
+
+        // ============================================
+    // DASHBOARD ADMIN
+    // ============================================
+
+    JW.carregarDashboardAdmin = async function() {
+        try {
+            var clientes = await JW.chamarGoogleScript('listarClientesAtivos');
+            var ordensServico = await JW.chamarGoogleScript('getAllOrdensServico');
+            var tecnicos = await JW.chamarGoogleScript('getTecnicosAtivos');
+            var pagamentosPendentes = await JW.chamarGoogleScript('getPagamentosPendentes');
+            var agenda = await JW.chamarGoogleScript('getProximosAgendamentos');
+            
+            var clientesAtivos = (clientes && clientes.success && clientes.clientes) ? clientes.clientes.length : 0;
+            
+            var ordensAtivas = 0;
+            var ordensRecentes = [];
+            if (ordensServico && ordensServico.length > 0) {
+                for (var i = 0; i < ordensServico.length; i++) {
+                    var status = ordensServico[i].status;
+                    if (status === 'Agendado' || status === 'Em Andamento' || status === 'Pendente') {
+                        ordensAtivas++;
+                    }
+                }
+                ordensRecentes = ordensServico.slice(0, 5);
+            }
+            
+            var tecnicosAtivos = tecnicos ? tecnicos.length : 0;
+            
+            var valorAReceber = 0;
+            if (pagamentosPendentes && pagamentosPendentes.length > 0) {
+                for (var i = 0; i < pagamentosPendentes.length; i++) {
+                    var valor = parseFloat(pagamentosPendentes[i].valor) || 0;
+                    valorAReceber += valor;
+                }
+            }
+            
+            var ordensRecentesHTML = '';
+            if (ordensRecentes.length > 0) {
+                for (var i = 0; i < ordensRecentes.length; i++) {
+                    var ordem = ordensRecentes[i];
+                    var statusClass = ordem.status === 'Concluído' ? 'badge-success' : 
+                                     (ordem.status === 'Cancelado' ? 'badge-danger' : 'badge-warning');
+                    ordensRecentesHTML += `
+                        <div class="list-item">
+                            <div>
+                                <div style="font-weight:600;">${ordem.id || 'OS-' + (i+1)}</div>
+                                <div class="text-muted">${ordem.cliente || 'Cliente'}</div>
+                                <div class="text-muted">${ordem.dataAbertura || ''}</div>
+                            </div>
+                            <span class="badge ${statusClass}">${ordem.status || 'Pendente'}</span>
+                        </div>
+                    `;
+                }
+            } else {
+                ordensRecentesHTML = '<div class="text-center text-muted">Nenhuma ordem recente</div>';
+            }
+            
+            var agendaHTML = '';
+            if (agenda && agenda.length > 0) {
+                for (var i = 0; i < agenda.length; i++) {
+                    var ag = agenda[i];
+                    agendaHTML += `
+                        <div class="list-item">
+                            <div>
+                                <div style="font-weight:600;">${ag.data || ''} às ${ag.hora || ''}</div>
+                                <div class="text-muted">${ag.cliente || 'Cliente'}</div>
+                                <div class="text-muted">${ag.servico || 'Serviço'}</div>
+                            </div>
+                            <span class="badge badge-info">${ag.status || 'Agendado'}</span>
+                        </div>
+                    `;
+                }
+            } else {
+                agendaHTML = '<div class="text-center text-muted">Nenhum agendamento próximo</div>';
+            }
+            
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <div class="dashboard-welcome">
+                        <h2>Dashboard</h2>
+                        <p>Bem-vindo ao painel administrativo, ${JW.usuarioLogado.usuario}!</p>
+                    </div>
+                    
+                    <div class="dashboard-stats">
+                        <div class="dashboard-card">
+                            <i class="fas fa-users"></i>
+                            <div class="dashboard-card-value">${clientesAtivos}</div>
+                            <div class="text-muted">Clientes Ativos</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <i class="fas fa-clipboard-list"></i>
+                            <div class="dashboard-card-value">${ordensAtivas}</div>
+                            <div class="text-muted">Ordens Ativas</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <i class="fas fa-user-cog"></i>
+                            <div class="dashboard-card-value">${tecnicosAtivos}</div>
+                            <div class="text-muted">Técnicos</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <i class="fas fa-money-bill-wave"></i>
+                            <div class="dashboard-card-value">R$ ${valorAReceber.toFixed(2)}</div>
+                            <div class="text-muted">A Receber</div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3><i class="fas fa-clock"></i> Ordens Recentes</h3>
+                        <div class="recent-list">
+                            ${ordensRecentesHTML}
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3><i class="fas fa-calendar"></i> Próximos Agendamentos</h3>
+                        <div class="recent-list">
+                            ${agendaHTML}
+                        </div>
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            console.error('Erro ao carregar dashboard:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('inicio');
+        }
+    };
+
+    JW.carregarDashboardAdmin = async function() {
+        try {
+            var dados = await JW.chamarGoogleScript('getDashboardAdminV3');
+            dados = dados || {};
+            var aReceber = dados.aReceber || { total: 0, totalComprasNaoPagas: 0, totalServicosNaoPagos: 0 };
+            var ordensRecentes = dados.ordensRecentes || [];
+            var agenda = dados.agenda || [];
+
+            var ordensRecentesHTML = ordensRecentes.length ? ordensRecentes.map(function(ordem, i) {
+                var statusClass = ordem.status === 'Concluido' || ordem.status === 'ConcluÃ­do' ? 'badge-success' :
+                    (ordem.status === 'Cancelado' ? 'badge-danger' : 'badge-warning');
+                return `
+                    <div class="list-item">
+                        <div>
+                            <div style="font-weight:600;">${ordem.id || 'OS-' + (i + 1)}</div>
+                            <div class="text-muted">${ordem.cliente || 'Cliente'}</div>
+                            <div class="text-muted">${ordem.dataAbertura || ordem.dataAgendamento || ''}</div>
+                        </div>
+                        <span class="badge ${statusClass}">${ordem.status || 'Pendente'}</span>
+                    </div>`;
+            }).join('') : '<div class="text-center text-muted">Nenhuma ordem recente</div>';
+
+            var agendaHTML = agenda.length ? agenda.map(function(ag) {
+                return `
+                    <div class="list-item">
+                        <div>
+                            <div style="font-weight:600;">${ag.data || ''} ${ag.hora ? 'as ' + ag.hora : ''}</div>
+                            <div class="text-muted">${ag.cliente || 'Cliente'}</div>
+                            <div class="text-muted">${ag.servico || 'Servico'}</div>
+                        </div>
+                        <span class="badge badge-info">${ag.status || 'Agendado'}</span>
+                    </div>`;
+            }).join('') : '<div class="text-center text-muted">Nenhum agendamento proximo</div>';
+
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <div class="dashboard-welcome">
+                        <h2>Dashboard</h2>
+                        <p>Bem-vindo ao painel administrativo, ${JW.usuarioLogado.usuario}!</p>
+                    </div>
+
+                    <div class="dashboard-stats">
+                        <div class="dashboard-card">
+                            <i class="fas fa-users"></i>
+                            <div class="dashboard-card-value">${dados.clientesAtivos || 0}</div>
+                            <div class="text-muted">Clientes Ativos</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <i class="fas fa-clipboard-list"></i>
+                            <div class="dashboard-card-value">${dados.ordensAtivas || 0}</div>
+                            <div class="text-muted">Ordens Ativas</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <i class="fas fa-user-cog"></i>
+                            <div class="dashboard-card-value">${dados.tecnicosAtivos || 0}</div>
+                            <div class="text-muted">Tecnicos</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <i class="fas fa-money-bill-wave"></i>
+                            <div class="dashboard-card-value">${JW.formatarMoeda(aReceber.total || 0)}</div>
+                            <div class="text-muted">A Receber</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3><i class="fas fa-wallet"></i> Composicao do A Receber</h3>
+                        <div class="recent-list">
+                            <div class="list-item"><span>Produtos nao pagos</span><strong>${JW.formatarMoeda(aReceber.totalComprasNaoPagas || 0)}</strong></div>
+                            <div class="list-item"><span>Servicos/pagamentos pendentes</span><strong>${JW.formatarMoeda(aReceber.totalServicosNaoPagos || 0)}</strong></div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3><i class="fas fa-clock"></i> Ordens Recentes</h3>
+                        <div class="recent-list">${ordensRecentesHTML}</div>
+                    </div>
+
+                    <div class="card">
+                        <h3><i class="fas fa-calendar"></i> Proximos Agendamentos</h3>
+                        <div class="recent-list">${agendaHTML}</div>
+                    </div>
+                </div>`;
+        } catch (error) {
+            console.error('Erro ao carregar dashboard:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('inicio', error.message);
+        }
+    };
+
+    JW.carregarCentralAdmin = async function() {
+        var dados = await JW.chamarGoogleScript('getCentralAdminV2');
+        var orcamentos = dados.orcamentosPendentes || [];
+        var compras = dados.comprasPendentes || [];
+
+        var orcamentosHTML = orcamentos.length ? orcamentos.map(function(o) {
+            return `
+                <div class="list-item">
+                    <div>
+                        <div style="font-weight:700;">${o.id} - ${o.cliente}</div>
+                        <div class="text-muted">${o.tipoServico || ''} | ${o.dataSolicitacao || ''}</div>
+                        <div class="text-muted">${o.descricao || ''}</div>
+                    </div>
+                    <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+                        <button class="btn btn-success btn-sm" onclick="JW.adminProporOrcamento('${o.id}')">Proposta</button>
+                        <button class="btn btn-secondary btn-sm" onclick="JW.adminCancelarOrcamento('${o.id}')">Cancelar</button>
+                    </div>
+                </div>`;
+        }).join('') : '<div class="text-center text-muted">Nenhum orçamento pendente.</div>';
+
+        var comprasHTML = compras.length ? compras.map(function(c) {
+            return `
+                <div class="list-item">
+                    <div>
+                        <div style="font-weight:700;">${c.id} - ${c.cliente}</div>
+                        <div class="text-muted">${c.dataCompra || ''} | ${c.quantidadeTotal || 0} item(ns)</div>
+                        <div class="text-muted">Entrega: ${c.statusEntrega || 'Processando'} | Pagamento: ${c.statusPagamento || 'Pendente'}</div>
+                    </div>
+                    <button class="btn btn-success btn-sm" onclick="JW.adminAtualizarCompra('${c.id}', 'Entregue')">Marcar entregue</button>
+                </div>`;
+        }).join('') : '<div class="text-center text-muted">Nenhuma compra pendente.</div>';
+
+        document.getElementById('mainContent').innerHTML = `
+            <div class="slide-up">
+                <h2><i class="fas fa-clipboard-check"></i> Central de Pendências</h2>
+                <div class="card">
+                    <h3>Orçamentos pendentes</h3>
+                    <div class="recent-list">${orcamentosHTML}</div>
+                </div>
+                <div class="card">
+                    <h3>Compras pendentes</h3>
+                    <div class="recent-list">${comprasHTML}</div>
+                </div>
+            </div>`;
+    };
+
+    JW.carregarCentralAdmin = async function() {
+        try {
+            var retorno = await JW.chamarGoogleScript('getCentralAdminV3');
+            var dados = retorno || {};
+            var orcamentos = dados.orcamentosPendentes || [];
+            var compras = dados.comprasPendentes || [];
+
+            var orcamentosHTML = orcamentos.length ? orcamentos.map(function(o) {
+                return `
+                    <div class="list-item">
+                        <div style="flex:1;">
+                            <div style="font-weight:700;">${o.id || ''} - ${o.cliente || ''}</div>
+                            <div class="text-muted">${o.tipoServico || ''} | ${o.dataSolicitacao || ''}</div>
+                            <div class="text-muted">${o.descricao || ''}</div>
+                            ${o.arquivoURL || o.imagemURL ? `<div class="mt-2"><button class="btn btn-secondary btn-sm" onclick="window.open('${o.arquivoURL || o.imagemURL}', '_blank')"><i class="fas fa-image"></i> Ver anexo</button></div>` : ''}
+                        </div>
+                        <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+                            <button class="btn btn-success btn-sm" onclick="JW.adminProporOrcamento('${o.id}')">Proposta</button>
+                            <button class="btn btn-secondary btn-sm" onclick="JW.adminCancelarOrcamento('${o.id}')">Cancelar</button>
+                        </div>
+                    </div>`;
+            }).join('') : '<div class="text-center text-muted">Nenhum orcamento pendente.</div>';
+
+            var comprasHTML = compras.length ? compras.map(function(c) {
+                var produtos = c.produtosLista && c.produtosLista.length ? c.produtosLista.map(function(p) {
+                    return (p.nome || 'Produto') + ' x' + (p.quantidade || 1);
+                }).join(', ') : 'Produtos da compra';
+                return `
+                    <div class="list-item">
+                        <div style="flex:1;">
+                            <div style="font-weight:700;">${c.id || ''} - ${c.cliente || ''}</div>
+                            <div class="text-muted">${c.dataCompra || ''} | ${c.quantidadeTotal || 0} item(ns) | ${JW.formatarMoeda(c.valorTotal || 0)}</div>
+                            <div class="text-muted">${produtos}</div>
+                            <div class="text-muted">Entrega: ${c.statusEntrega || 'Processando'} | Pagamento: ${c.statusPagamento || 'Pendente'}</div>
+                        </div>
+                        <button class="btn btn-success btn-sm" onclick="JW.adminAtualizarCompra('${c.id}', 'Entregue')">Marcar entregue</button>
+                    </div>`;
+            }).join('') : '<div class="text-center text-muted">Nenhuma compra pendente.</div>';
+
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <h2><i class="fas fa-clipboard-check"></i> Central de Pendencias</h2>
+                    <div class="card">
+                        <h3>Orcamentos pendentes</h3>
+                        <div class="recent-list">${orcamentosHTML}</div>
+                    </div>
+                    <div class="card">
+                        <h3>Compras pendentes</h3>
+                        <div class="recent-list">${comprasHTML}</div>
+                    </div>
+                    ${dados.erros && dados.erros.length ? `<div class="alert alert-error">${dados.erros.join('<br>')}</div>` : ''}
+                </div>`;
+        } catch (error) {
+            console.error('Erro ao carregar pendencias:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('ordem-servico', error.message);
+        }
+    };
+
+    JW.adminProporOrcamento = async function(id) {
+        var valor = prompt('Valor da proposta para ' + id + ':');
+        if (valor === null) return;
+        var observacoes = prompt('Observações da proposta:', '') || '';
+        JW.mostrarLoading('Enviando proposta...');
+        try {
+            var resultado = await JW.chamarGoogleScript('aprovarOrcamento', id, parseFloat(valor.replace(',', '.')), 'Aprovado', observacoes);
+            alert((resultado && resultado.message) || 'Orçamento atualizado.');
+            await JW.carregarCentralAdmin();
+        } finally {
+            JW.esconderLoading();
+        }
+    };
+
+    JW.adminCancelarOrcamento = async function(id) {
+        var motivo = prompt('Motivo do cancelamento:', '') || '';
+        JW.mostrarLoading('Cancelando...');
+        try {
+            var resultado = await JW.chamarGoogleScript('cancelarOrcamento', id, motivo);
+            alert((resultado && resultado.message) || 'Orçamento cancelado.');
+            await JW.carregarCentralAdmin();
+        } finally {
+            JW.esconderLoading();
+        }
+    };
+
+    JW.adminAtualizarCompra = async function(id, status) {
+        JW.mostrarLoading('Atualizando compra...');
+        try {
+            var resultado = await JW.chamarGoogleScript('atualizarStatusCompraV2', id, status);
+            alert((resultado && resultado.message) || 'Compra atualizada.');
+            await JW.carregarCentralAdmin();
+        } finally {
+            JW.esconderLoading();
+        }
+    };
+
+    JW.carregarRelatorios = async function() {
+        var r = await JW.chamarGoogleScript('getRelatoriosAdminV2');
+        document.getElementById('mainContent').innerHTML = `
+            <div class="slide-up">
+                <h2><i class="fas fa-chart-line"></i> Relatórios</h2>
+                <div class="dashboard-stats">
+                    <div class="dashboard-card"><i class="fas fa-users"></i><div class="dashboard-card-value">${r.totalClientes || 0}</div><div class="text-muted">Clientes</div></div>
+                    <div class="dashboard-card"><i class="fas fa-file-invoice-dollar"></i><div class="dashboard-card-value">${r.orcamentosPendentes || 0}</div><div class="text-muted">Orçamentos Pendentes</div></div>
+                    <div class="dashboard-card"><i class="fas fa-shopping-cart"></i><div class="dashboard-card-value">${r.comprasPendentes || 0}</div><div class="text-muted">Compras Pendentes</div></div>
+                    <div class="dashboard-card"><i class="fas fa-money-bill-wave"></i><div class="dashboard-card-value">R$ ${(r.faturamentoCompras || 0).toFixed(2)}</div><div class="text-muted">Vendas</div></div>
+                </div>
+                <div class="card"><h3>Resumo</h3>
+                    <p>Total de orçamentos: ${r.totalOrcamentos || 0}</p>
+                    <p>Total de compras: ${r.totalCompras || 0}</p>
+                    <p>Administradores ativos: ${r.totalAdmins || 0}</p>
+                </div>
+            </div>`;
+    };
+
+    // ============================================
+    // INÍCIO DO CLIENTE
+    // ============================================
+
+    JW.carregarRelatorios = async function() {
+        try {
+            var r = await JW.chamarGoogleScript('getRelatoriosAdminV3');
+            r = r || {};
+            JW.relatorioAtual = r;
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <h2><i class="fas fa-chart-line"></i> Relatorios</h2>
+                    <div class="dashboard-stats">
+                        <div class="dashboard-card report-card-action" onclick="JW.mostrarDetalheRelatorio('clientes')">
+                            <i class="fas fa-users"></i>
+                            <div class="dashboard-card-value">${r.totalClientes || 0}</div>
+                            <div class="text-muted">Clientes</div>
+                        </div>
+                        <div class="dashboard-card report-card-action" onclick="JW.mostrarDetalheRelatorio('orcamentos')">
+                            <i class="fas fa-file-invoice-dollar"></i>
+                            <div class="dashboard-card-value">${r.orcamentosPendentes || 0}</div>
+                            <div class="text-muted">Orcamentos Pendentes</div>
+                        </div>
+                        <div class="dashboard-card report-card-action" onclick="JW.mostrarDetalheRelatorio('compras')">
+                            <i class="fas fa-shopping-cart"></i>
+                            <div class="dashboard-card-value">${r.comprasPendentes || 0}</div>
+                            <div class="text-muted">Compras Pendentes</div>
+                        </div>
+                        <div class="dashboard-card report-card-action" onclick="JW.mostrarDetalheRelatorio('vendas')">
+                            <i class="fas fa-money-bill-wave"></i>
+                            <div class="dashboard-card-value">${JW.formatarMoeda(r.faturamentoCompras || 0)}</div>
+                            <div class="text-muted">Vendas</div>
+                        </div>
+                    </div>
+                    <div id="relatorioDetalhe" class="report-detail"></div>
+                    <div class="card">
+                        <h3>Resumo</h3>
+                        <div class="list">
+                            <div class="list-item"><span>Total de orcamentos</span><strong>${r.totalOrcamentos || 0}</strong></div>
+                            <div class="list-item"><span>Total de compras</span><strong>${r.totalCompras || 0}</strong></div>
+                            <div class="list-item"><span>Administradores ativos</span><strong>${r.totalAdmins || 0}</strong></div>
+                            <div class="list-item"><span>A receber</span><strong>${JW.formatarMoeda((r.aReceber && r.aReceber.total) || 0)}</strong></div>
+                        </div>
+                    </div>
+                </div>`;
+            JW.mostrarDetalheRelatorio('clientes');
+        } catch (error) {
+            console.error('Erro ao carregar relatorios:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('relatorios', error.message);
+        }
+    };
+
+    JW.mostrarDetalheRelatorio = function(tipo) {
+        var r = JW.relatorioAtual || {};
+        var container = document.getElementById('relatorioDetalhe');
+        if (!container) return;
+
+        var titulo = 'Detalhes';
+        var lista = [];
+
+        if (tipo === 'clientes') {
+            titulo = 'Clientes ativos';
+            lista = (r.clientes || []).map(function(c) {
+                return `<div class="list-item"><div><strong>${JW.escapeHTML(c.usuario || 'Cliente')}</strong><div class="text-muted">${JW.escapeHTML(c.email || '')}</div><div class="text-muted">${JW.escapeHTML(c.telefone || '')}</div></div><span class="badge badge-success">${JW.escapeHTML(c.status || 'Ativo')}</span></div>`;
+            });
+        } else if (tipo === 'orcamentos') {
+            titulo = 'Orcamentos pendentes';
+            lista = (r.orcamentosPendentesLista || []).map(function(o) {
+                return `<div class="list-item"><div><strong>${JW.escapeHTML(o.id || '')} - ${JW.escapeHTML(o.cliente || '')}</strong><div class="text-muted">${JW.escapeHTML(o.tipoServico || '')} | ${JW.escapeHTML(o.dataSolicitacao || '')}</div><div class="text-muted">${JW.escapeHTML(o.descricao || '')}</div></div><span class="badge badge-info">${JW.escapeHTML(o.status || 'Solicitado')}</span></div>`;
+            });
+        } else if (tipo === 'compras') {
+            titulo = 'Compras pendentes';
+            lista = (r.comprasPendentesLista || []).map(function(c) {
+                return `<div class="list-item"><div><strong>${JW.escapeHTML(c.id || '')} - ${JW.escapeHTML(c.cliente || '')}</strong><div class="text-muted">${JW.escapeHTML(c.dataCompra || '')} | ${JW.formatarMoeda(c.valorTotal || 0)}</div><div class="text-muted">Pagamento: ${JW.escapeHTML(c.statusPagamento || 'Pendente')} | Entrega: ${JW.escapeHTML(c.statusEntrega || 'Processando')}</div></div><span class="badge badge-warning">${JW.escapeHTML(c.statusEntrega || 'Processando')}</span></div>`;
+            });
+        } else if (tipo === 'vendas') {
+            titulo = 'Vendas';
+            lista = (r.vendas || []).map(function(v) {
+                return `<div class="list-item"><div><strong>${JW.escapeHTML(v.id || '')} - ${JW.escapeHTML(v.cliente || '')}</strong><div class="text-muted">${JW.escapeHTML(v.dataCompra || '')} | ${JW.formatarMoeda(v.valorTotal || 0)}</div><div class="text-muted">Pagamento: ${JW.escapeHTML(v.statusPagamento || '')} | Entrega: ${JW.escapeHTML(v.statusEntrega || '')}</div></div><span class="badge ${v.statusPagamento === 'Pago' ? 'badge-success' : 'badge-warning'}">${JW.escapeHTML(v.statusPagamento || 'Pendente')}</span></div>`;
+            });
+        }
+
+        container.innerHTML = `
+            <div class="card">
+                <h3>${titulo}</h3>
+                <div class="list">${lista.length ? lista.join('') : '<div class="text-center text-muted">Nenhum registro para exibir.</div>'}</div>
+            </div>`;
+    };
+
+    JW.carregarInicioCliente = async function() {
+        try {
+            var orcamentos = await JW.chamarGoogleScript('getOrcamentosCliente', JW.usuarioLogado.email);
+            var compras = await JW.chamarGoogleScript('getComprasCliente', JW.usuarioLogado.email);
+            var servicos = await JW.chamarGoogleScript('getServicosCliente', JW.usuarioLogado.email);
+            
+            var orcamentosPendentes = 0;
+            if (orcamentos) {
+                for (var i = 0; i < orcamentos.length; i++) {
+                    if (orcamentos[i].status === 'Solicitado' || orcamentos[i].status === 'Em Negociação') {
+                        orcamentosPendentes++;
+                    }
+                }
+            }
+            
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <div class="dashboard-stats">
+                        <div class="dashboard-card">
+                            <i class="fas fa-file-invoice-dollar"></i>
+                            <div class="dashboard-card-value">${orcamentos ? orcamentos.length : 0}</div>
+                            <div class="text-muted">Total de Orçamentos</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <i class="fas fa-shopping-cart"></i>
+                            <div class="dashboard-card-value">${compras ? compras.length : 0}</div>
+                            <div class="text-muted">Total de Compras</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <i class="fas fa-tools"></i>
+                            <div class="dashboard-card-value">${servicos ? servicos.length : 0}</div>
+                            <div class="text-muted">Serviços Realizados</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <i class="fas fa-clock"></i>
+                            <div class="dashboard-card-value">${orcamentosPendentes}</div>
+                            <div class="text-muted">Orçamentos Pendentes</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            console.error('Erro ao carregar início:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('inicio');
+        }
+    };
+
+        // ============================================
+    // PRODUTOS - COM LOGS PARA DEPURAR
+    // ============================================
+
+        // ============================================
+    // PRODUTOS - CORRIGIDO (onclick funcionando)
+    // ============================================
+
+    JW.carregarProdutos = async function() {
+        try {
+            console.log("🛒 [DEBUG] Iniciando carregamento de produtos...");
+            var produtos = await JW.chamarGoogleScript('getProdutos');
+            console.log("✅ [DEBUG] Produtos carregados:", produtos);
+            
+            var categorias = {};
+            
+            if (produtos && produtos.length > 0) {
+                for (var i = 0; i < produtos.length; i++) {
+                    var cat = produtos[i].categoria || 'Outros';
+                    if (!categorias[cat]) categorias[cat] = true;
+                }
+            }
+            
+            var categoriasArray = Object.keys(categorias);
+            
+            var filterButtons = '<button class="filter-btn todos active" data-filter="todos">Todos</button>';
+            for (var i = 0; i < categoriasArray.length; i++) {
+                filterButtons += `<button class="filter-btn" data-filter="${categoriasArray[i].toLowerCase()}">${categoriasArray[i]}</button>`;
+            }
+            
+            var produtosHTML = '';
+            
+            if (produtos && produtos.length > 0) {
+                for (var i = 0; i < produtos.length; i++) {
+                    var prod = produtos[i];
+                    var categoriaLower = (prod.categoria || 'outros').toLowerCase();
+                    var temImagem = prod.imagemURL && prod.imagemURL.trim() !== '';
+                    var precoOriginal = prod.preco || 0;
+                    var precoDesconto = prod.precoComDesconto || 0;
+                    var temDesconto = precoDesconto > 0 && precoDesconto < precoOriginal;
+                    var precoVenda = temDesconto ? precoDesconto : precoOriginal;
+                    prod.precoVenda = precoVenda;
+                    
+                    // CORREÇÃO: Usar data-attributes em vez de onclick inline complexo
+                    var produtoIdAttr = prod.id;
+                    var produtoNomeAttr = prod.nome || 'Produto';
+                    var produtoPrecoAttr = prod.preco;
+                    var produtoEstoqueAttr = prod.estoque;
+                    var produtoDescricaoAttr = prod.descricao || 'Sem descrição.';
+                    var produtoImagemAttr = prod.imagemURL || '';
+                    var temEstoque = (prod.estoque || 0) > 0;
+                    var manualProdutoURL = prod.manualURL || prod.manualVideoURL || '';
+                    var temManual = prod.exibirManual && manualProdutoURL && manualProdutoURL.trim() !== '';
+                    var adminPodeEditarPreco = JW.usuarioLogado.tipo === "Administrador";
+                    var produtoIdSeguro = (prod.id || '').toString().replace(/'/g, "\\'");
+                    var precoHTML = '';
+
+                    if (temDesconto) {
+                        precoHTML += '<span class="old-price ' + (adminPodeEditarPreco ? 'editable-price' : '') + '" onclick="event.stopPropagation(); JW.editarPrecoProdutoCampo(\'' + produtoIdSeguro + '\', \'preco\', ' + precoOriginal + ')">R$ ' + precoOriginal.toFixed(2) + '</span>';
+                    }
+
+                    precoHTML += '<span class="' + (adminPodeEditarPreco ? 'editable-price' : '') + '" onclick="event.stopPropagation(); JW.editarPrecoProdutoCampo(\'' + produtoIdSeguro + '\', \'' + (temDesconto ? 'desconto' : 'preco') + '\', ' + precoVenda + ')">R$ ' + precoVenda.toFixed(2) + '</span>';
+                    
+                    produtosHTML += `
+                        <div class="product-card" data-categoria="${categoriaLower}" 
+                             data-produto-id="${produtoIdAttr}"
+                             data-produto-nome="${produtoNomeAttr}"
+                             data-produto-preco="${produtoPrecoAttr}"
+                             data-produto-estoque="${produtoEstoqueAttr}"
+                             data-produto-descricao="${produtoDescricaoAttr.replace(/"/g, '&quot;')}"
+                             data-produto-imagem="${produtoImagemAttr}">
+                            <div class="product-image-container">
+                                ${temImagem ? 
+                                    `<img src="${prod.imagemURL}" class="product-image" alt="${prod.nome}"
+                                          onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\\'product-image-placeholder\\'><i class=\\'fas fa-box\\'></i></div>';">` : 
+                                    `<div class="product-image-placeholder">
+                                        <i class="fas fa-box"></i>
+                                    </div>`
+                                }
+                            </div>
+                            <div class="product-info">
+                                <div class="product-name">${prod.nome || 'Produto'}</div>
+                                <div class="product-category">
+                                    <span class="badge badge-warning">${prod.categoria || 'Geral'}</span>
+                                </div>
+                                <div class="product-price-container">
+                                    <div class="product-price">
+                                        ${precoHTML}
+                                    </div>
+                                    ${adminPodeEditarPreco ? 
+                                        `<div class="text-muted" style="font-size:0.7rem;">Clique em cada valor para editar separadamente</div>` : ''}
+                                </div>
+                                <p class="text-muted"><i class="fas fa-box"></i> Estoque: ${prod.estoque || 0}</p>
+                                <button class="btn ${temEstoque ? 'btn-success' : 'btn-secondary'} btn-block" 
+                                        onclick="JW.selecionarProdutoPorId('${prod.id}')"
+                                        ${temEstoque ? '' : 'disabled'}>
+                                    ${temEstoque ? 'Comprar' : 'Esgotado'}
+                                </button>
+                                ${temManual ? `
+                                    <button class="btn btn-primary btn-block mt-2" onclick="JW.abrirManualProduto('${manualProdutoURL.replace(/'/g, "\\'")}')">
+                                        <i class="fas fa-book-open"></i> Manual
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+            } else {
+                produtosHTML = '<p class="text-center">Nenhum produto disponível.</p>';
+            }
+
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <h2><i class="fas fa-shopping-cart"></i> Produtos</h2>
+                    
+                    <div class="filters-container">
+                        <div class="filters-title">
+                            <i class="fas fa-filter"></i> Filtrar por Categoria
+                        </div>
+                        <div class="filters-buttons" id="filterButtons">
+                            ${filterButtons}
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div id="produtosGrid" class="products-grid">
+                            ${produtosHTML}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Armazenar produtos em variável global para acesso rápido
+            JW.produtosLista = produtos;
+            
+            var filterBtns = document.querySelectorAll('.filter-btn');
+            for (var i = 0; i < filterBtns.length; i++) {
+                filterBtns[i].addEventListener('click', function(e) {
+                    var filter = this.dataset.filter;
+                    var btns = document.querySelectorAll('.filter-btn');
+                    for (var j = 0; j < btns.length; j++) {
+                        btns[j].classList.remove('active');
+                    }
+                    this.classList.add('active');
+                    JW.filtrarProdutos(filter);
+                });
+            }
+            
+            console.log("✅ [DEBUG] Loja renderizada com sucesso!");
+        } catch (error) {
+            console.error('❌ [DEBUG] Erro ao carregar produtos:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('produtos');
+        }
+    };
+
+    // Nova função: selecionar produto por ID
+    JW.selecionarProdutoPorId = function(produtoId) {
+        console.log("🛒 [DEBUG] selecionarProdutoPorId chamado com ID:", produtoId);
+        
+        // Buscar produto na lista de produtos
+        var produto = null;
+        if (JW.produtosLista) {
+            for (var i = 0; i < JW.produtosLista.length; i++) {
+                if (JW.produtosLista[i].id === produtoId) {
+                    produto = JW.produtosLista[i];
+                    break;
+                }
+            }
+        }
+        
+        if (!produto) {
+            console.error("❌ [DEBUG] Produto não encontrado com ID:", produtoId);
+            alert('Erro: Produto não encontrado!');
+            return;
+        }
+        
+        console.log("✅ [DEBUG] Produto encontrado:", produto);
+        JW.selecionarProduto(produto);
+    };
+
+    JW.abrirManualProduto = function(url) {
+        if (!url) {
+            alert('Manual nÃ£o cadastrado para este produto.');
+            return;
+        }
+        window.open(url, '_blank');
+    };
+
+    JW.getPrecoVendaProduto = function(produto) {
+        var precoOriginal = produto && produto.preco ? parseFloat(produto.preco) : 0;
+        var precoDesconto = produto && produto.precoComDesconto ? parseFloat(produto.precoComDesconto) : 0;
+        return precoDesconto > 0 && precoDesconto < precoOriginal ? precoDesconto : precoOriginal;
+    };
+
+    JW.selecionarProduto = function(produto) {
+        console.log("🛒 [DEBUG] selecionarProduto chamado com:", produto);
+        
+        // Verificar se o modal existe no DOM
+        var modal = document.getElementById('modalComprar');
+        if (!modal) {
+            console.error("❌ [DEBUG] Modal 'modalComprar' não encontrado no DOM!");
+            alert('Erro: Modal de compra não encontrado. Recarregue a página.');
+            return;
+        }
+        
+        JW.produtoAtual = produto;
+        
+        var nomeEl = document.getElementById('modalProdutoNome');
+        var descEl = document.getElementById('modalProdutoDescricao');
+        var precoEl = document.getElementById('modalProdutoPreco');
+        var estoqueEl = document.getElementById('modalProdutoEstoque');
+        var imagemEl = document.getElementById('modalProdutoImagem');
+        
+        console.log("🔍 [DEBUG] Elementos do modal:", {
+            nomeEl: nomeEl ? "OK" : "NÃO ENCONTRADO",
+            descEl: descEl ? "OK" : "NÃO ENCONTRADO",
+            precoEl: precoEl ? "OK" : "NÃO ENCONTRADO",
+            estoqueEl: estoqueEl ? "OK" : "NÃO ENCONTRADO"
+        });
+        
+        if (nomeEl) nomeEl.textContent = produto.nome || 'Produto';
+        if (descEl) descEl.textContent = produto.descricao || 'Sem descrição.';
+        if (precoEl) precoEl.textContent = `R$ ${JW.getPrecoVendaProduto(produto).toFixed(2)}`;
+        if (estoqueEl) estoqueEl.textContent = produto.estoque || 0;
+        if (imagemEl) {
+            if (produto.imagemURL) {
+                imagemEl.innerHTML = `<img src="${produto.imagemURL}" alt="${JW.escapeHTML(produto.nome || 'Produto')}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius-md);" onerror="this.parentElement.innerHTML='<i class=\\'fas fa-box\\' style=\\'font-size:2rem;color:var(--text-muted)\\'></i>';">`;
+            } else {
+                imagemEl.innerHTML = '<i class="fas fa-box" style="font-size:2rem; color:var(--text-muted)"></i>';
+            }
+        }
+        
+        var inputQuantidade = document.getElementById('modalProdutoQuantidade');
+        if (inputQuantidade) {
+            inputQuantidade.max = Math.min(produto.estoque || 0, 10);
+            inputQuantidade.value = 1;
+        }
+        
+        JW.atualizarTotalModal();
+        JW.mostrarModal('modalComprar');
+        console.log("✅ [DEBUG] Modal de compra aberto!");
+    };
+
+    JW.atualizarTotalModal = function() {
+        if (!JW.produtoAtual) return;
+        var quantidade = parseInt(document.getElementById('modalProdutoQuantidade').value) || 1;
+        var total = quantidade * JW.getPrecoVendaProduto(JW.produtoAtual);
+        var totalEl = document.getElementById('modalProdutoTotal');
+        if (totalEl) totalEl.textContent = `Total: R$ ${total.toFixed(2)}`;
+    };
+
+    JW.confirmarCompra = async function() {
+        console.log("🛒 [DEBUG] confirmarCompra chamado!");
+        
+        if (!JW.produtoAtual) {
+            console.error("❌ [DEBUG] Nenhum produto selecionado!");
+            alert('❌ Nenhum produto selecionado!');
+            return;
+        }
+        
+        var quantidade = parseInt(document.getElementById('modalProdutoQuantidade').value) || 1;
+        var precoUnitario = JW.getPrecoVendaProduto(JW.produtoAtual);
+        
+        console.log("📦 [DEBUG] Dados da compra:", {
+            produto: JW.produtoAtual.nome,
+            quantidade: quantidade,
+            preco: precoUnitario,
+            estoque: JW.produtoAtual.estoque
+        });
+        
+        if (quantidade < 1) {
+            alert('❌ Quantidade inválida!');
+            return;
+        }
+        
+        if (quantidade > (JW.produtoAtual.estoque || 0)) {
+            alert('❌ Quantidade maior que o estoque disponível!');
+            return;
+        }
+        
+        JW.mostrarLoading('Processando compra...');
+        
+        try {
+            var resultado = await JW.chamarGoogleScript('registrarCompra', {
+                cliente: JW.usuarioLogado.usuario,
+                email: JW.usuarioLogado.email,
+                produtos: JSON.stringify([{
+                    id: JW.produtoAtual.id,
+                    nome: JW.produtoAtual.nome,
+                    preco: precoUnitario,
+                    quantidade: quantidade
+                }])
+            });
+            
+            console.log("✅ [DEBUG] Resultado da compra:", resultado);
+            JW.fecharModal('modalComprar');
+            
+            if (resultado && resultado.success) {
+                alert(`✅ Compra realizada!\n\nID: ${resultado.id}\nTotal: R$ ${resultado.valorTotal}`);
+                // Recarregar produtos para atualizar estoque
+                JW.carregarProdutos();
+            } else {
+                alert('❌ ' + (resultado ? resultado.message : 'Erro ao processar compra'));
+            }
+        } catch (error) {
+            console.error("❌ [DEBUG] Erro na compra:", error);
+            alert('❌ Erro: ' + error.message);
+        } finally {
+            JW.esconderLoading();
+        }
+    };
+
+    // Admin: Editar preço do produto
+    JW.editarPrecoProduto = async function(produtoId, precoAtual) {
+        console.log("✏️ [DEBUG] Editando preço do produto:", produtoId, "preço atual:", precoAtual);
+        
+        if (JW.usuarioLogado.tipo !== "Administrador") {
+            alert('❌ Apenas administradores podem editar preços!');
+            return;
+        }
+        
+        var novoPreco = prompt('Digite o novo preço do produto (R$):', precoAtual);
+        if (novoPreco === null) return;
+        
+        novoPreco = parseFloat(novoPreco.replace(',', '.'));
+        if (isNaN(novoPreco) || novoPreco < 0) {
+            alert('❌ Preço inválido!');
+            return;
+        }
+        
+        JW.mostrarLoading('Atualizando preço...');
+        
+        try {
+            var resultado = await JW.chamarGoogleScript('atualizarPrecoProduto', produtoId, novoPreco);
+            console.log("✅ [DEBUG] Resultado da atualização:", resultado);
+            
+            if (resultado && resultado.success) {
+                alert('✅ Preço atualizado com sucesso!');
+                JW.carregarProdutos();
+            } else {
+                alert('❌ ' + (resultado ? resultado.message : 'Erro ao atualizar preço'));
+            }
+        } catch (error) {
+            console.error("❌ [DEBUG] Erro ao editar preço:", error);
+            alert('❌ Erro: ' + error.message);
+        } finally {
+            JW.esconderLoading();
+        }
+    };
+
+    // Admin: Editar preço do produto
+    JW.editarPrecoProduto = async function(produtoId, precoAtual) {
+        console.log("✏️ [DEBUG] Editando preço do produto:", produtoId, "preço atual:", precoAtual);
+        
+        if (JW.usuarioLogado.tipo !== "Administrador") {
+            alert('❌ Apenas administradores podem editar preços!');
+            return;
+        }
+        
+        var novoPreco = prompt('Digite o novo preço do produto (R$):', precoAtual);
+        if (novoPreco === null) return;
+        
+        novoPreco = parseFloat(novoPreco.replace(',', '.'));
+        if (isNaN(novoPreco) || novoPreco < 0) {
+            alert('❌ Preço inválido!');
+            return;
+        }
+        
+        JW.mostrarLoading('Atualizando preço...');
+        
+        try {
+            var resultado = await JW.chamarGoogleScript('atualizarPrecoProduto', produtoId, novoPreco);
+            console.log("✅ [DEBUG] Resultado da atualização:", resultado);
+            
+            if (resultado && resultado.success) {
+                alert('✅ Preço atualizado com sucesso!');
+                JW.carregarProdutos();
+            } else {
+                alert('❌ ' + (resultado ? resultado.message : 'Erro ao atualizar preço'));
+            }
+        } catch (error) {
+            console.error("❌ [DEBUG] Erro ao editar preço:", error);
+            alert('❌ Erro: ' + error.message);
+        } finally {
+            JW.esconderLoading();
+        }
+    };
+
+    // Admin: Editar preço do produto - CORRIGIDO
+    JW.editarPrecoProduto = async function(produtoId, precoAtual) {
+        console.log("✏️ Editando preço do produto:", produtoId, "preço atual:", precoAtual);
+        
+        if (JW.usuarioLogado.tipo !== "Administrador") {
+            alert('❌ Apenas administradores podem editar preços!');
+            return;
+        }
+        
+        var novoPreco = prompt('Digite o novo preço do produto (R$):', precoAtual);
+        if (novoPreco === null) return;
+        
+        novoPreco = parseFloat(novoPreco.replace(',', '.'));
+        if (isNaN(novoPreco) || novoPreco < 0) {
+            alert('❌ Preço inválido!');
+            return;
+        }
+        
+        JW.mostrarLoading('Atualizando preço...');
+        
+        try {
+            var resultado = await JW.chamarGoogleScript('atualizarPrecoProduto', produtoId, novoPreco);
+            console.log("✅ Resultado da atualização:", resultado);
+            
+            if (resultado && resultado.success) {
+                alert('✅ Preço atualizado com sucesso!');
+                JW.carregarProdutos();
+            } else {
+                alert('❌ ' + (resultado ? resultado.message : 'Erro ao atualizar preço'));
+            }
+        } catch (error) {
+            console.error("❌ Erro ao editar preço:", error);
+            alert('❌ Erro: ' + error.message);
+        } finally {
+            JW.esconderLoading();
+        }
+    };
+
+    JW.filtrarProdutos = function(categoria) {
+        var produtos = document.querySelectorAll('#produtosGrid .product-card');
+        for (var i = 0; i < produtos.length; i++) {
+            var prod = produtos[i];
+            var prodCategoria = prod.dataset.categoria || '';
+            if (categoria === 'todos' || prodCategoria === categoria) {
+                prod.style.display = 'flex';
+            } else {
+                prod.style.display = 'none';
+            }
+        }
+    };
+
+    JW.selecionarProduto = function(produto) {
+        if (!produto || (produto.estoque || 0) <= 0) {
+            alert('Produto sem estoque disponÃ­vel.');
+            return;
+        }
+
+        JW.produtoAtual = produto;
+        
+        document.getElementById('modalProdutoNome').textContent = produto.nome || 'Produto';
+        document.getElementById('modalProdutoDescricao').textContent = produto.descricao || 'Sem descrição.';
+        document.getElementById('modalProdutoPreco').textContent = `R$ ${JW.getPrecoVendaProduto(produto).toFixed(2)}`;
+        document.getElementById('modalProdutoEstoque').textContent = produto.estoque || 0;
+        var imagemModal = document.getElementById('modalProdutoImagem');
+        if (imagemModal) {
+            imagemModal.innerHTML = produto.imagemURL
+                ? `<img src="${produto.imagemURL}" alt="${produto.nome || 'Produto'}" style="width:100%; height:100%; object-fit:cover; border-radius:var(--radius-md);">`
+                : `<i class="fas fa-box" style="font-size:2rem; color:var(--text-muted)"></i>`;
+        }
+        
+        var inputQuantidade = document.getElementById('modalProdutoQuantidade');
+        inputQuantidade.max = Math.min(produto.estoque || 0, 10);
+        inputQuantidade.value = 1;
+        
+        JW.atualizarTotalModal();
+        JW.mostrarModal('modalComprar');
+    };
+
+    JW.atualizarTotalModal = function() {
+        if (!JW.produtoAtual) return;
+        var quantidade = parseInt(document.getElementById('modalProdutoQuantidade').value) || 1;
+        var total = quantidade * JW.getPrecoVendaProduto(JW.produtoAtual);
+        document.getElementById('modalProdutoTotal').textContent = `Total: R$ ${total.toFixed(2)}`;
+    };
+
+    JW.confirmarCompra = async function() {
+        if (!JW.produtoAtual) return;
+        var quantidade = parseInt(document.getElementById('modalProdutoQuantidade').value) || 1;
+        if (quantidade < 1 || quantidade > (JW.produtoAtual.estoque || 0)) {
+            alert('❌ Quantidade inválida!');
+            return;
+        }
+        JW.mostrarLoading('Processando...');
+        try {
+            var resultado = await JW.chamarGoogleScript('registrarCompra', {
+                cliente: JW.usuarioLogado.usuario,
+                email: JW.usuarioLogado.email,
+                produtos: JSON.stringify([{
+                    id: JW.produtoAtual.id,
+                    nome: JW.produtoAtual.nome,
+                    preco: JW.getPrecoVendaProduto(JW.produtoAtual),
+                    quantidade: quantidade
+                }])
+            });
+            JW.fecharModal('modalComprar');
+            if (resultado && resultado.success) {
+                alert(`✅ Compra realizada!\n\nID: ${resultado.id}\nTotal: R$ ${resultado.valorTotal}`);
+                JW.carregarProdutos();
+            } else {
+                alert('❌ ' + (resultado ? resultado.message : 'Erro ao processar'));
+            }
+        } catch (error) {
+            alert('❌ Erro: ' + error.message);
+        } finally {
+            JW.esconderLoading();
+        }
+    };
+
+    JW.editarPrecoProduto = async function(produtoId, precoAtual) {
+        if (JW.usuarioLogado.tipo !== "Administrador") return;
+        var novoPreco = prompt('Digite o novo preço do produto (R$):', precoAtual);
+        if (novoPreco === null) return;
+        novoPreco = parseFloat(novoPreco.replace(',', '.'));
+        if (isNaN(novoPreco) || novoPreco < 0) {
+            alert('❌ Preço inválido!');
+            return;
+        }
+        JW.mostrarLoading('Atualizando preço...');
+        try {
+            var resultado = await JW.chamarGoogleScript('atualizarPrecoProduto', produtoId, novoPreco);
+            if (resultado && resultado.success) {
+                alert('✅ Preço atualizado com sucesso!');
+                JW.carregarProdutos();
+            } else {
+                alert('❌ ' + (resultado ? resultado.message : 'Erro ao atualizar'));
+            }
+        } catch (error) {
+            alert('❌ Erro: ' + error.message);
+        } finally {
+            JW.esconderLoading();
+        }
+    };
+
+JW.editarPrecoProdutoCampo = async function(produtoId, campo, precoAtual) {
+    if (!JW.usuarioLogado || JW.usuarioLogado.tipo !== "Administrador") return;
+    var nomeCampo = campo === 'desconto' ? 'preco com desconto' : 'preco principal';
+    var novoPreco = prompt('Digite o novo ' + nomeCampo + ' (R$):', precoAtual);
+    if (novoPreco === null) return;
+
+    novoPreco = parseFloat(novoPreco.toString().replace(',', '.'));
+    if (isNaN(novoPreco) || novoPreco < 0) {
+        alert('❌ Preco invalido!');
+        return;
+    }
+
+    JW.mostrarLoading('Atualizando preco...');
+    try {
+        var resultado = await JW.chamarGoogleScript('atualizarPrecoProdutoCampoV3', produtoId, novoPreco, campo);
+        if (resultado && resultado.success) {
+            alert('✅ ' + resultado.message);
+            await JW.carregarProdutos();
+        } else {
+            alert('❌ ' + (resultado ? resultado.message : 'Erro ao atualizar preco'));
+        }
+    } catch (error) {
+        alert('❌ Erro: ' + error.message);
+    } finally {
+        JW.esconderLoading();
+    }
+};
+
+// ============================================
+// HISTÓRICO COMPLETO - SUBSTITUIR AS FUNÇÕES EXISTENTES
+// ============================================
+
+JW.normalizarTipoHistorico = function(tipo) {
+    return (tipo || '')
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+};
+
+JW.carregarHistorico = async function() {
+    try {
+        console.log("=== CARREGANDO HISTÓRICO ===");
+        
+        if (!JW.usuarioLogado) {
+            console.error("Usuário não logado");
+            return;
+        }
+        
+        var email = JW.usuarioLogado.email;
+        console.log("Email do usuário:", email);
+        
+        document.getElementById('mainContent').innerHTML = '<div class="card text-center"><div class="loading-spinner-modern" style="margin:20px auto;"></div><p>Carregando histórico...</p></div>';
+        
+        var retornoHistorico = await JW.chamarGoogleScript('getHistoricoCompletoUsuarioV3', email);
+        var historico = JW.extrairLista(retornoHistorico, ['itens', 'historico']);
+        if (!historico.length) {
+            historico = JW.extrairLista(await JW.chamarGoogleScript('getHistoricoCompletoUsuarioV2', email));
+        }
+        
+        console.log("Histórico retornado:", historico);
+        console.log("Quantidade:", historico ? historico.length : 0);
+        
+        if (!historico || historico.length === 0) {
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <h2><i class="fas fa-history"></i> Meu Histórico</h2>
+                    <div class="card text-center">
+                        <i class="fas fa-inbox" style="font-size: 4rem; color: var(--text-muted); margin: 2rem 0 1rem;"></i>
+                        <h3>Nenhum registro encontrado</h3>
+                        <p class="text-muted">Você ainda não possui orçamentos, compras ou serviços.</p>
+                        <button class="btn btn-primary mt-3" onclick="JW.abrirTab('solicitar-orcamento')">Solicitar Orçamento</button>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+        
+        var orcamentosCount = historico.filter(function(i) { return JW.normalizarTipoHistorico(i.tipo) === 'orcamento'; }).length;
+        var comprasCount = historico.filter(function(i) { return i.tipo === 'Compra'; }).length;
+        var servicosCount = historico.filter(function(i) { return JW.normalizarTipoHistorico(i.tipo) === 'servico'; }).length;
+        
+        var html = `
+            <div class="slide-up">
+                <h2><i class="fas fa-history"></i> Meu Histórico</h2>
+                <div class="card">
+                    <div class="filters-container">
+                        <div class="filters-title">
+                            <i class="fas fa-filter"></i> Filtrar por Tipo
+                        </div>
+                        <div class="filters-buttons" id="filtrosHistorico">
+                            <button class="filter-btn active" data-filtro="todos">Todos (${historico.length})</button>
+                            <button class="filter-btn" data-filtro="Orçamento">Orçamentos (${orcamentosCount})</button>
+                            <button class="filter-btn" data-filtro="Compra">Compras (${comprasCount})</button>
+                            <button class="filter-btn" data-filtro="Serviço">Serviços (${servicosCount})</button>
+                        </div>
+                    </div>
+                    <div id="listaHistorico"></div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('mainContent').innerHTML = html;
+        
+        JW.historicoCompleto = historico;
+        JW.renderizarHistoricoCompleto('todos');
+        
+        var botoes = document.querySelectorAll('#filtrosHistorico .filter-btn');
+        for (var i = 0; i < botoes.length; i++) {
+            botoes[i].onclick = function() {
+                var filtro = this.dataset.filtro;
+                document.querySelectorAll('#filtrosHistorico .filter-btn').forEach(function(b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                JW.renderizarHistoricoCompleto(filtro);
+            };
+        }
+        
+    } catch (error) {
+        console.error("Erro:", error);
+        document.getElementById('mainContent').innerHTML = '<div class="card text-center"><p style="color:red;">Erro: ' + error.message + '</p><button class="btn btn-primary mt-3" onclick="JW.carregarHistorico()">Tentar novamente</button></div>';
+    }
+};
+
+JW.renderizarHistoricoCompleto = function(filtro) {
+    var container = document.getElementById('listaHistorico');
+    if (!container) return;
+    
+    var itens = JW.historicoCompleto;
+    
+    if (filtro !== 'todos') {
+        var filtroNormalizado = JW.normalizarTipoHistorico(filtro);
+        itens = itens.filter(function(i) { return JW.normalizarTipoHistorico(i.tipo) === filtroNormalizado; });
+    }
+    
+    if (itens.length === 0) {
+        container.innerHTML = '<div class="text-center p-5"><i class="fas fa-search" style="font-size: 3rem; color: var(--text-muted);"></i><p class="mt-3">Nenhum registro encontrado para este filtro.</p></div>';
+        return;
+    }
+    
+    var html = '<div class="list">';
+    
+    for (var i = 0; i < itens.length; i++) {
+        var item = itens[i];
+        
+        var badgeClass = 'badge-warning';
+        if (item.status === 'Aprovado' || item.status === 'Concluído' || item.status === 'Entregue') badgeClass = 'badge-success';
+        else if (item.status === 'Recusado' || item.status === 'Cancelado') badgeClass = 'badge-danger';
+        else if (item.status === 'Solicitado' || item.status === 'Pendente') badgeClass = 'badge-info';
+        
+        var tipoNormalizado = JW.normalizarTipoHistorico(item.tipo);
+        var corTipo = tipoNormalizado === 'orcamento' ? '#0077B6' : (tipoNormalizado === 'compra' ? '#28a745' : '#ffc107');
+        var iconTipo = tipoNormalizado === 'orcamento' ? 'fa-file-invoice-dollar' : (tipoNormalizado === 'compra' ? 'fa-shopping-cart' : 'fa-tools');
+        
+        html += `
+            <div class="list-item" style="flex-direction: column; align-items: flex-start;">
+                <div style="display: flex; justify-content: space-between; width: 100%; margin-bottom: 0.5rem;">
+                    <div>
+                        <span class="badge" style="background: ${corTipo}; color: white;">
+                            <i class="fas ${iconTipo}"></i> ${item.tipo}
+                        </span>
+                        <span class="badge ${badgeClass}" style="margin-left: 0.5rem;">${item.status}</span>
+                    </div>
+                    <div class="text-muted small">${item.dataRegistro || ''}</div>
+                </div>
+                <div style="font-weight: 600; font-size: 1rem; margin-bottom: 0.25rem;">${item.titulo || ''}</div>
+                <div class="text-muted small">${item.descricao || ''}</div>
+                ${item.valor && item.valor !== 'Aguardando' ? `<div style="color: var(--success); font-weight: 600; margin-top: 0.5rem;">${item.valor}</div>` : ''}
+                ${item.observacoes ? `<div class="text-muted small mt-2"><i class="fas fa-comment"></i> ${item.observacoes}</div>` : ''}
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+};
+
+        // ============================================
+    // MANUAIS
+    // ============================================
+
+    JW.carregarManuais = async function() {
+        try {
+            var manuais = await JW.chamarGoogleScript('getManuais');
+            var manuaisHTML = '';
+            
+            if (manuais && manuais.length > 0) {
+                for (var i = 0; i < manuais.length; i++) {
+                    var manual = manuais[i];
+                    manuaisHTML += `
+                        <div class="list-item" data-categoria="${(manual.categoria || '').toLowerCase()}">
+                            <div style="flex:1;">
+                                <div style="font-weight:600;">
+                                    <i class="${manual.icone || 'fas fa-file'}" style="color: var(--primary); margin-right: 0.5rem;"></i>
+                                    ${manual.produto || 'Manual'}
+                                </div>
+                                <div style="margin-top: 0.25rem;">
+                                    <span class="badge" style="background: #6c757d; color: white;">${manual.categoria || 'Geral'}</span>
+                                    <span class="badge" style="background: var(--primary); color: white; margin-left: 5px;">${manual.tipo || 'Documento'}</span>
+                                </div>
+                                ${manual.descricao ? `<p class="text-muted mt-2">${manual.descricao}</p>` : ''}
+                            </div>
+                            <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+                                ${manual.url ? `<button class="btn btn-primary btn-sm" onclick="window.open('${manual.url}', '_blank')">
+                                    <i class="fas fa-file-pdf"></i> PDF
+                                </button>` : ''}
+                                ${manual.videoURL ? `<button class="btn btn-success btn-sm" onclick="window.open('${manual.videoURL}', '_blank')">
+                                    <i class="fas fa-play"></i> Vídeo
+                                </button>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+            } else {
+                manuaisHTML = '<p class="text-center p-3">Nenhum manual disponível.</p>';
+            }
+
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <h2><i class="fas fa-book"></i> Manuais</h2>
+                    
+                    <div class="card">
+                        <div class="filters-container">
+                            <div class="filters-title">
+                                <i class="fas fa-filter"></i> Filtrar por Categoria
+                            </div>
+                            <div class="filters-buttons">
+                                <button class="filter-btn active" data-filter="todos">Todos</button>
+                                <button class="filter-btn" data-filter="químicos">Químicos</button>
+                                <button class="filter-btn" data-filter="equipamentos">Equipamentos</button>
+                            </div>
+                        </div>
+                        
+                        <div id="listaManuais" class="list">
+                            ${manuaisHTML}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            var filterBtns = document.querySelectorAll('.filter-btn');
+            for (var i = 0; i < filterBtns.length; i++) {
+                filterBtns[i].addEventListener('click', function(e) {
+                    var filter = this.dataset.filter;
+                    var btns = document.querySelectorAll('.filter-btn');
+                    for (var j = 0; j < btns.length; j++) {
+                        btns[j].classList.remove('active');
+                    }
+                    this.classList.add('active');
+                    JW.filtrarManuais(filter);
+                });
+            }
+        } catch (error) {
+            console.error('Erro ao carregar manuais:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('manuais');
+        }
+    };
+
+    JW.filtrarManuais = function(categoria) {
+        var manuais = document.querySelectorAll('#listaManuais .list-item');
+        for (var i = 0; i < manuais.length; i++) {
+            var manual = manuais[i];
+            var manualCategoria = manual.dataset.categoria || '';
+            if (categoria === 'todos' || manualCategoria.includes(categoria.toLowerCase())) {
+                manual.style.display = 'flex';
+            } else {
+                manual.style.display = 'none';
+            }
+        }
+    };
+
+    // ============================================
+    // PERFIL
+    // ============================================
+
+    JW.abrirPerfil = function() { JW.abrirTab('perfil'); };
+
+    JW.carregarPerfil = async function() {
+        try {
+            var orcamentos = await JW.chamarGoogleScript('getOrcamentosCliente', JW.usuarioLogado.email);
+            var compras = await JW.chamarGoogleScript('getComprasCliente', JW.usuarioLogado.email);
+            var servicos = await JW.chamarGoogleScript('getServicosCliente', JW.usuarioLogado.email);
+            
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <h2><i class="fas fa-user-circle"></i> Meu Perfil</h2>
+                    
+                    <div class="card">
+                        <div class="profile-info">
+                            <h1 class="profile-name" id="profileName">${JW.usuarioLogado.usuario}</h1>
+                            <div class="profile-email">
+                                <i class="fas fa-envelope"></i> <span id="profileEmail">${JW.usuarioLogado.email}</span>
+                            </div>
+                            <div class="profile-phone">
+                                <i class="fas fa-phone"></i> <span id="profilePhone">${JW.usuarioLogado.telefone || 'Não informado'}</span>
+                            </div>
+                        </div>
+
+                        <div style="border-top: 1px solid var(--border); padding-top: 1.5rem; margin-top: 1rem;">
+                            <h3>Editar Informações</h3>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Nome de usuário</label>
+                                <input id="editUsuario" class="form-input" type="text" value="${JW.usuarioLogado.usuario}">
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">E-mail</label>
+                                <input id="editEmail" class="form-input" type="email" value="${JW.usuarioLogado.email}">
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Telefone</label>
+                                <input id="editTelefone" class="form-input" type="tel" value="${JW.usuarioLogado.telefone || ''}" oninput="JW.formatarTelefone(this)">
+                            </div>
+
+                            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                                <button class="btn btn-success" onclick="JW.salvarPerfil()">
+                                    <i class="fas fa-save"></i> Salvar Alterações
+                                </button>
+                                <button class="btn btn-primary" onclick="JW.abrirModalAlterarSenha()">
+                                    <i class="fas fa-key"></i> Alterar Senha
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3>Minhas Estatísticas</h3>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="statsOrcamentos">${orcamentos ? orcamentos.length : 0}</div>
+                                <div class="stat-label">Orçamentos</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="statsCompras">${compras ? compras.length : 0}</div>
+                                <div class="stat-label">Compras</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="statsServicos">${servicos ? servicos.length : 0}</div>
+                                <div class="stat-label">Serviços</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            console.error('Erro ao carregar perfil:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('perfil');
+        }
+    };
+
+    JW.salvarPerfil = async function() {
+        var novoUsuario = document.getElementById('editUsuario').value.trim();
+        var novoEmail = document.getElementById('editEmail').value.trim();
+        var novoTelefone = document.getElementById('editTelefone').value.trim();
+        if (!novoUsuario || !novoEmail) { alert('❌ Preencha os campos obrigatórios!'); return; }
+        JW.mostrarLoading('Salvando alterações...');
+        try {
+            var resultado = await JW.chamarGoogleScript('atualizarPerfilUsuario', JW.usuarioLogado.email, { usuario: novoUsuario, email: novoEmail, telefone: novoTelefone });
+            if (resultado && resultado.success) {
+                JW.usuarioLogado.usuario = novoUsuario;
+                JW.usuarioLogado.email = novoEmail;
+                JW.usuarioLogado.telefone = novoTelefone;
+                document.getElementById('sidebarUserName').textContent = novoUsuario;
+                document.getElementById('profileName').textContent = novoUsuario;
+                document.getElementById('profileEmail').textContent = novoEmail;
+                document.getElementById('profilePhone').textContent = novoTelefone;
+                alert('✅ Perfil atualizado com sucesso!');
+            } else { alert('❌ ' + (resultado ? resultado.message : 'Erro ao salvar')); }
+        } catch (error) { alert('❌ Erro: ' + error.message); }
+        finally { JW.esconderLoading(); }
+    };
+
+    JW.abrirModalAlterarSenha = function() { JW.mostrarModal('modalAlterarSenha'); };
+
+    JW.alterarSenha = async function() {
+        var senhaAtual = document.getElementById('senhaAtual').value;
+        var novaSenha = document.getElementById('novaSenhaPerfil').value;
+        var confirmarSenha = document.getElementById('confirmarNovaSenhaPerfil').value;
+        if (!senhaAtual || !novaSenha || !confirmarSenha) { JW.mostrarMensagem('senhaMessage', 'Preencha todos os campos!', 'error'); return; }
+        if (novaSenha.length < 4) { JW.mostrarMensagem('senhaMessage', 'A nova senha deve ter pelo menos 4 caracteres!', 'error'); return; }
+        if (novaSenha !== confirmarSenha) { JW.mostrarMensagem('senhaMessage', 'As senhas não coincidem!', 'error'); return; }
+        JW.mostrarLoading('Alterando senha...');
+        try {
+            var resultado = await JW.chamarGoogleScript('alterarSenhaUsuario', JW.usuarioLogado.email, senhaAtual, novaSenha);
+            if (resultado && resultado.success) {
+                JW.mostrarMensagem('senhaMessage', '✅ ' + resultado.message, 'success');
+                document.getElementById('senhaAtual').value = '';
+                document.getElementById('novaSenhaPerfil').value = '';
+                document.getElementById('confirmarNovaSenhaPerfil').value = '';
+                setTimeout(function() { JW.fecharModal('modalAlterarSenha'); }, 1500);
+            } else { JW.mostrarMensagem('senhaMessage', '❌ ' + (resultado ? resultado.message : 'Erro ao alterar'), 'error'); }
+        } catch (error) { JW.mostrarMensagem('senhaMessage', '❌ Erro: ' + error.message, 'error'); }
+        finally { JW.esconderLoading(); }
+    };
+
+        // ============================================
+    // ADMIN PANEL
+    // ============================================
+
+    JW.carregarAdmin = async function() {
+        try {
+            var telefones = await JW.chamarGoogleScript('listarTelefonesAutorizados');
+            var clientes = await JW.chamarGoogleScript('listarClientesAtivos');
+            
+            var telefonesHTML = '';
+            if (telefones && telefones.success && telefones.telefones && telefones.telefones.length > 0) {
+                for (var i = 0; i < telefones.telefones.length; i++) {
+                    var tel = telefones.telefones[i];
+                    telefonesHTML += `
+                        <div class="list-item">
+                            <div>
+                                <div style="font-weight:600;">${tel.nome || 'Sem nome'}</div>
+                                <div class="text-muted">${tel.telefone || 'N/A'}</div>
+                                <div style="margin-top: 0.25rem;">
+                                    <span class="badge ${tel.status === 'Ativo' ? 'badge-success' : 'badge-warning'}">
+                                        ${tel.status || 'Desconhecido'}
+                                    </span>
+                                    <span class="badge ${tel.usado === 'Sim' ? 'badge-danger' : 'badge-success'}" style="margin-left: 5px;">
+                                        ${tel.usado === 'Sim' ? 'Utilizado' : 'Disponível'}
+                                    </span>
+                                </div>
+                            </div>
+                            <div>
+                                <button class="btn btn-danger btn-sm" onclick="JW.removerTelefoneAdmin('${tel.telefone}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+            } else {
+                telefonesHTML = '<p class="text-center p-3">Nenhum telefone autorizado.</p>';
+            }
+            
+            var clientesHTML = '';
+            if (clientes && clientes.success && clientes.clientes && clientes.clientes.length > 0) {
+                for (var i = 0; i < clientes.clientes.length; i++) {
+                    var cliente = clientes.clientes[i];
+                    clientesHTML += `
+                        <div class="list-item">
+                            <div>
+                                <div style="font-weight:600;">${cliente.usuario || 'N/A'}</div>
+                                <div class="text-muted">${cliente.email || 'N/A'}</div>
+                                <div class="text-muted"><i class="fas fa-phone"></i> ${cliente.telefone || 'Não informado'}</div>
+                                <div class="text-muted"><i class="far fa-calendar"></i> ${cliente.dataCadastro || ''}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } else {
+                clientesHTML = '<p class="text-center p-3">Nenhum cliente ativo.</p>';
+            }
+
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <div class="admin-panel">
+                        <h2><i class="fas fa-crown"></i> Painel Administrativo</h2>
+                        <div class="admin-stats">
+                            <div class="admin-stat-card">
+                                <div class="admin-stat-value">${clientes && clientes.clientes ? clientes.clientes.length : 0}</div>
+                                <div class="admin-stat-label">Clientes Ativos</div>
+                            </div>
+                            <div class="admin-stat-card">
+                                <div class="admin-stat-value">${telefones && telefones.telefones ? telefones.telefones.length : 0}</div>
+                                <div class="admin-stat-label">Telefones Autorizados</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="admin-card">
+                        <div class="admin-card-header">
+                            <i class="fas fa-phone"></i> Telefones Autorizados
+                        </div>
+                        <div class="admin-card-body">
+                            <div class="form-group">
+                                <label class="form-label">Adicionar Novo Telefone</label>
+                                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    <input type="tel" id="novoTelefone" class="form-input" style="flex: 1;" placeholder="(16) 99123-4567" oninput="JW.formatarTelefone(this)">
+                                    <input type="text" id="novoTelefoneNome" class="form-input" style="flex: 1;" placeholder="Nome do cliente">
+                                    <button class="btn btn-success" onclick="JW.adicionarTelefoneAdmin()">
+                                        <i class="fas fa-plus"></i> Adicionar
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="list mt-3">
+                                ${telefonesHTML}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="admin-card">
+                        <div class="admin-card-header">
+                            <i class="fas fa-users"></i> Clientes Ativos
+                        </div>
+                        <div class="admin-card-body">
+                            <div class="list">
+                                ${clientesHTML}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="admin-card">
+                        <div class="admin-card-header">
+                            <i class="fas fa-bell"></i> Gerenciar Notificações
+                        </div>
+                        <div class="admin-card-body">
+                            <button class="btn btn-primary" onclick="JW.abrirNotificacoesAdmin()">
+                                <i class="fas fa-paper-plane"></i> Enviar Notificação
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            console.error('Erro ao carregar admin:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('admin');
+        }
+    };
+
+    JW.carregarAdmin = async function() {
+        try {
+            var cadastros = await JW.chamarGoogleScript('getAdminCadastrosV3');
+            cadastros = cadastros || { clientes: [], telefones: [] };
+            var telefones = cadastros.telefones || [];
+            var clientes = cadastros.clientes || [];
+
+            var telefonesHTML = telefones.length ? telefones.map(function(tel) {
+                return `
+                    <div class="list-item">
+                        <div>
+                            <div style="font-weight:600;">${tel.nome || 'Sem nome'}</div>
+                            <div class="text-muted">${tel.telefone || 'N/A'}</div>
+                            <div style="margin-top: 0.25rem;">
+                                <span class="badge ${tel.status === 'Ativo' ? 'badge-success' : 'badge-warning'}">${tel.status || 'Desconhecido'}</span>
+                                <span class="badge ${tel.usado === 'Sim' ? 'badge-danger' : 'badge-success'}" style="margin-left: 5px;">${tel.usado === 'Sim' ? 'Utilizado' : 'Disponivel'}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <button class="btn btn-danger btn-sm" onclick="JW.removerTelefoneAdmin('${tel.telefone}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>`;
+            }).join('') : '<p class="text-center p-3">Nenhum telefone autorizado.</p>';
+
+            var clientesHTML = clientes.length ? clientes.map(function(cliente) {
+                return `
+                    <div class="list-item">
+                        <div>
+                            <div style="font-weight:600;">${cliente.usuario || 'N/A'}</div>
+                            <div class="text-muted">${cliente.email || 'N/A'}</div>
+                            <div class="text-muted"><i class="fas fa-phone"></i> ${cliente.telefone || 'Nao informado'}</div>
+                            <div class="text-muted"><i class="far fa-calendar"></i> ${cliente.dataCadastro || ''}</div>
+                        </div>
+                    </div>`;
+            }).join('') : '<p class="text-center p-3">Nenhum cliente ativo.</p>';
+
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <div class="admin-panel">
+                        <h2><i class="fas fa-crown"></i> Painel Administrativo</h2>
+                        <div class="admin-stats">
+                            <div class="admin-stat-card">
+                                <div class="admin-stat-value">${clientes.length}</div>
+                                <div class="admin-stat-label">Clientes Ativos</div>
+                            </div>
+                            <div class="admin-stat-card">
+                                <div class="admin-stat-value">${telefones.length}</div>
+                                <div class="admin-stat-label">Telefones Autorizados</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="admin-card">
+                        <div class="admin-card-header"><i class="fas fa-phone"></i> Telefones Autorizados</div>
+                        <div class="admin-card-body">
+                            <div class="form-group">
+                                <label class="form-label">Adicionar Novo Telefone</label>
+                                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    <input type="tel" id="novoTelefone" class="form-input" style="flex: 1;" placeholder="(16) 99123-4567" oninput="JW.formatarTelefone(this)">
+                                    <input type="text" id="novoTelefoneNome" class="form-input" style="flex: 1;" placeholder="Nome do cliente">
+                                    <button class="btn btn-success" onclick="JW.adicionarTelefoneAdmin()"><i class="fas fa-plus"></i> Adicionar</button>
+                                </div>
+                            </div>
+                            <div class="list mt-3">${telefonesHTML}</div>
+                        </div>
+                    </div>
+
+                    <div class="admin-card">
+                        <div class="admin-card-header"><i class="fas fa-users"></i> Clientes Ativos</div>
+                        <div class="admin-card-body"><div class="list">${clientesHTML}</div></div>
+                    </div>
+
+                    <div class="admin-card">
+                        <div class="admin-card-header"><i class="fas fa-bell"></i> Gerenciar Notificacoes</div>
+                        <div class="admin-card-body">
+                            <button class="btn btn-primary" onclick="JW.abrirNotificacoesAdmin()">
+                                <i class="fas fa-paper-plane"></i> Enviar Notificacao
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+        } catch (error) {
+            console.error('Erro ao carregar admin:', error);
+            document.getElementById('mainContent').innerHTML = JW.getTemplateErro('admin', error.message);
+        }
+    };
+
+    JW.abrirNotificacoesAdmin = async function() {
+        JW.mostrarLoading('Carregando...');
+        try {
+            var retornoNotificacoesAdmin = await JW.chamarGoogleScript('getAllNotificacoesV3');
+            var notificacoes = JW.extrairLista(retornoNotificacoesAdmin, ['itens', 'notificacoes']);
+            var produtosNotif = await JW.chamarGoogleScript('getProdutos');
+            var produtosOptions = '<option value="">Nenhum produto vinculado</option>';
+            if (produtosNotif && produtosNotif.length) {
+                for (var p = 0; p < produtosNotif.length; p++) {
+                    produtosOptions += `<option value="${produtosNotif[p].id}">${produtosNotif[p].nome}</option>`;
+                }
+            }
+            var notifHTML = '';
+            if (notificacoes && notificacoes.length > 0) {
+                for (var i = 0; i < notificacoes.length; i++) {
+                    var notif = notificacoes[i];
+                    notifHTML += `
+                        <div class="list-item">
+                            <div>
+                                <div style="font-weight:600;">
+                                    <i class="${notif.icone || 'fas fa-bell'}"></i> ${notif.titulo}
+                                </div>
+                                <div class="text-muted">${notif.dataEnvio} • Para: ${notif.destinatarios}</div>
+                                <p class="mt-2">${notif.mensagem}</p>
+                            </div>
+                        </div>
+                    `;
+                }
+            } else {
+                notifHTML = '<div class="text-center p-3">Nenhuma notificação enviada.</div>';
+            }
+            
+            document.getElementById('mainContent').innerHTML = `
+                <div class="slide-up">
+                    <h2><i class="fas fa-bell"></i> Central de Notificações</h2>
+                    
+                    <div class="admin-card">
+                        <div class="admin-card-header">
+                            <i class="fas fa-paper-plane"></i> Enviar Nova Notificação
+                        </div>
+                        <div class="admin-card-body">
+                            <div class="form-group">
+                                <label class="form-label">Título</label>
+                                <input id="notifTitulo" class="form-input" type="text" placeholder="Ex: Promoção de Verão">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Mensagem</label>
+                                <textarea id="notifMensagem" class="form-textarea" rows="4" placeholder="Digite a mensagem..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Tipo</label>
+                                <select id="notifTipo" class="form-select">
+                                    <option value="info">📌 Informação</option>
+                                    <option value="promocao">🎉 Promoção</option>
+                                    <option value="aviso">⚠️ Aviso</option>
+                                    <option value="lembrete">📅 Lembrete</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Destinatários</label>
+                                <select id="notifDestinatarios" class="form-select">
+                                    <option value="todos">Todos os usuários</option>
+                                    <option value="clientes">Apenas clientes</option>
+                                    <option value="admin">Apenas administradores</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <input type="checkbox" id="notifEnviarEmail"> Enviar também por e-mail
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Vincular produto da loja</label>
+                                <select id="notifProdutoId" class="form-select">
+                                    ${produtosOptions}
+                                </select>
+                            </div>
+                            <button class="btn btn-success" onclick="JW.enviarNotificacaoAdmin()">
+                                <i class="fas fa-paper-plane"></i> Enviar Notificação
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="admin-card">
+                        <div class="admin-card-header">
+                            <i class="fas fa-history"></i> Histórico de Notificações
+                        </div>
+                        <div class="admin-card-body">
+                            <div class="list">
+                                ${notifHTML}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } catch (error) { console.error('Erro:', error); }
+        finally { JW.esconderLoading(); }
+    };
+
+    JW.enviarNotificacaoAdmin = async function() {
+        var titulo = document.getElementById('notifTitulo').value.trim();
+        var mensagem = document.getElementById('notifMensagem').value.trim();
+        var tipo = document.getElementById('notifTipo').value;
+        var destinatarios = document.getElementById('notifDestinatarios').value;
+        var enviarEmail = document.getElementById('notifEnviarEmail').checked;
+        var produtoId = document.getElementById('notifProdutoId').value;
+        var acao = produtoId ? 'produto:' + produtoId : '';
+        if (!titulo || !mensagem) { alert('❌ Preencha título e mensagem!'); return; }
+        JW.mostrarLoading('Enviando notificação...');
+        try {
+            var resultado = await JW.chamarGoogleScript('enviarNotificacaoV3', { titulo: titulo, mensagem: mensagem, tipo: tipo, destinatarios: destinatarios, enviarEmail: enviarEmail, acao: acao, icone: 'fas fa-bell' });
+            if (resultado && resultado.success) { alert('✅ ' + resultado.message); JW.carregarNotificacoes(); JW.abrirNotificacoesAdmin(); }
+            else { alert('❌ ' + (resultado ? resultado.message : 'Erro ao enviar')); }
+        } catch (error) { alert('❌ Erro: ' + error.message); }
+        finally { JW.esconderLoading(); }
+    };
+
+    JW.adicionarTelefoneAdmin = async function() {
+        var telefone = document.getElementById('novoTelefone').value.trim();
+        var nome = document.getElementById('novoTelefoneNome').value.trim();
+        if (!telefone) { alert('❌ Digite um telefone!'); return; }
+        JW.mostrarLoading('Adicionando...');
+        try {
+            var resultado = await JW.chamarGoogleScript('adicionarTelefoneAutorizado', telefone, nome);
+            if (resultado && resultado.success) { alert('✅ ' + resultado.message); JW.carregarAdmin(); }
+            else { alert('❌ ' + (resultado ? resultado.message : 'Erro ao adicionar')); }
+        } catch (error) { alert('❌ Erro: ' + error.message); }
+        finally { JW.esconderLoading(); }
+    };
+
+    JW.removerTelefoneAdmin = async function(telefone) {
+        if (!confirm('Remover telefone ' + telefone + '?')) return;
+        JW.mostrarLoading('Removendo...');
+        try {
+            var resultado = await JW.chamarGoogleScript('removerTelefoneAutorizado', telefone);
+            if (resultado && resultado.success) { alert('✅ ' + resultado.message); JW.carregarAdmin(); }
+            else { alert('❌ ' + (resultado ? resultado.message : 'Erro ao remover')); }
+        } catch (error) { alert('❌ Erro: ' + error.message); }
+        finally { JW.esconderLoading(); }
+    };
+
+        // ============================================
+    // RECUPERAÇÃO DE SENHA
+    // ============================================
+
+    JW.abrirRecuperacaoSenha = function() {
+        console.log("Abrindo modal de recuperação...");
+        JW.recoveryData = { email: '', codigo: '' };
+        JW.mostrarModal('modalRecuperacao');
+        JW.mostrarStepRecuperacao(1);
+        var recoveryMsg = document.getElementById('recoveryMessage');
+        if (recoveryMsg) recoveryMsg.style.display = 'none';
+    };
+
+    JW.mostrarStepRecuperacao = function(step) {
+        var steps = document.querySelectorAll('.recovery-steps');
+        for (var i = 0; i < steps.length; i++) {
+            steps[i].classList.remove('active');
+            steps[i].classList.add('d-none');
+        }
+        var stepEl = document.getElementById('step' + step);
+        if (stepEl) {
+            stepEl.classList.remove('d-none');
+            stepEl.classList.add('active');
+        }
+        if (step === 2) JW.gerarInputsCodigo();
+    };
+
+    JW.gerarInputsCodigo = function() {
+        var container = document.getElementById('codeInputsContainer');
+        if (!container) return;
+        container.innerHTML = '';
+        for (var i = 0; i < 6; i++) {
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.maxLength = 1;
+            input.className = 'code-input';
+            input.dataset.index = i;
+            input.addEventListener('input', function(e) {
+                if (this.value && this.dataset.index < 5) {
+                    var nextInput = container.querySelector('[data-index="' + (parseInt(this.dataset.index) + 1) + '"]');
+                    if (nextInput) nextInput.focus();
+                }
+                JW.coletarCodigoRecuperacao();
+            });
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Backspace' && !this.value && this.dataset.index > 0) {
+                    var prevInput = container.querySelector('[data-index="' + (parseInt(this.dataset.index) - 1) + '"]');
+                    if (prevInput) prevInput.focus();
+                }
+            });
+            container.appendChild(input);
+        }
+        var firstInput = container.querySelector('[data-index="0"]');
+        if (firstInput) firstInput.focus();
+    };
+
+    JW.coletarCodigoRecuperacao = function() {
+        var inputs = document.querySelectorAll('.code-input');
+        var codigo = '';
+        for (var i = 0; i < inputs.length; i++) codigo += inputs[i].value || '';
+        JW.recoveryData.codigo = codigo;
+    };
+
+    JW.solicitarCodigoRecuperacao = async function() {
+        var email = document.getElementById('recoveryEmail').value.trim();
+        if (!email) { JW.mostrarMensagemRecuperacao('Digite seu e-mail!', 'error'); return; }
+        JW.mostrarLoading('Enviando código...');
+        try {
+            var resultado = await JW.chamarGoogleScript('solicitarRecuperacaoSenha', email);
+            JW.esconderLoading();
+            if (resultado && resultado.success) {
+                JW.recoveryData.email = resultado.email;
+                JW.mostrarMensagemRecuperacao('Código enviado. Verifique sua caixa de entrada e também a pasta de spam/lixo eletrônico.', 'success');
+                JW.mostrarStepRecuperacao(2);
+            } else {
+                JW.mostrarMensagemRecuperacao('❌ ' + (resultado ? resultado.message : 'Erro ao enviar'), 'error');
+            }
+        } catch (error) {
+            JW.esconderLoading();
+            JW.mostrarMensagemRecuperacao('❌ Erro de conexão.', 'error');
+        }
+    };
+
+    JW.verificarCodigoRecuperacao = async function() {
+        JW.coletarCodigoRecuperacao();
+        if (JW.recoveryData.codigo.length !== 6) { JW.mostrarMensagemRecuperacao('Digite o código completo!', 'error'); return; }
+        JW.mostrarLoading('Verificando...');
+        try {
+            var resultado = await JW.chamarGoogleScript('verificarCodigoRecuperacao', JW.recoveryData.email, JW.recoveryData.codigo);
+            JW.esconderLoading();
+            if (resultado && resultado.success) {
+                JW.mostrarMensagemRecuperacao('✅ Código verificado!', 'success');
+                JW.mostrarStepRecuperacao(3);
+            } else {
+                JW.mostrarMensagemRecuperacao('❌ ' + (resultado ? resultado.message : 'Código inválido'), 'error');
+            }
+        } catch (error) {
+            JW.esconderLoading();
+            JW.mostrarMensagemRecuperacao('❌ Erro de conexão.', 'error');
+        }
+    };
+
+    JW.redefinirSenha = async function() {
+        var novaSenha = document.getElementById('novaSenha').value;
+        var confirmarNovaSenha = document.getElementById('confirmarNovaSenha').value;
+        if (!novaSenha || !confirmarNovaSenha) { JW.mostrarMensagemRecuperacao('Preencha todos os campos!', 'error'); return; }
+        if (novaSenha.length < 4) { JW.mostrarMensagemRecuperacao('A senha deve ter pelo menos 4 caracteres!', 'error'); return; }
+        if (novaSenha.startsWith('0')) { JW.mostrarMensagemRecuperacao('A senha não pode começar com zero!', 'error'); return; }
+        if (novaSenha !== confirmarNovaSenha) { JW.mostrarMensagemRecuperacao('As senhas não coincidem!', 'error'); return; }
+        JW.mostrarLoading('Redefinindo...');
+        try {
+            var resultado = await JW.chamarGoogleScript('redefinirSenha', JW.recoveryData.email, JW.recoveryData.codigo, novaSenha, confirmarNovaSenha);
+            JW.esconderLoading();
+            if (resultado && resultado.success) {
+                JW.mostrarMensagemRecuperacao('✅ ' + resultado.message, 'success');
+                setTimeout(function() { JW.fecharModal('modalRecuperacao'); JW.mostrarMensagem('loginMessage', '✅ Senha redefinida! Faça login.', 'success'); }, 2000);
+            } else {
+                JW.mostrarMensagemRecuperacao('❌ ' + (resultado ? resultado.message : 'Erro ao redefinir'), 'error');
+            }
+        } catch (error) {
+            JW.esconderLoading();
+            JW.mostrarMensagemRecuperacao('❌ Erro: ' + error.message, 'error');
+        }
+    };
+
+    JW.reenviarCodigo = function() {
+        if (!JW.recoveryData.email) { JW.mostrarMensagemRecuperacao('Solicite um código primeiro!', 'error'); return; }
+        JW.solicitarCodigoRecuperacao();
+    };
+
+    JW.mostrarMensagemRecuperacao = function(mensagem, tipo) {
+        var el = document.getElementById('recoveryMessage');
+        if (!el) return;
+        el.textContent = mensagem;
+        el.className = 'alert alert-' + tipo;
+        el.style.display = 'block';
+    };
+
+        // ============================================
+    // NOTIFICAÇÕES - CORRIGIDO
+    // ============================================
+
+    JW.carregarNotificacoes = async function() {
+        try {
+            var retornoNotificacoes = await JW.chamarGoogleScript('getNotificacoesUsuarioV3', JW.usuarioLogado.email);
+            JW.notificacoes = JW.extrairLista(retornoNotificacoes, ['itens', 'notificacoes']);
+            // Garantir que notificacoes é um array
+            if (!JW.notificacoes) JW.notificacoes = [];
+            JW.atualizarBadgeNotificacoes();
+        } catch (error) {
+            console.error('Erro ao carregar notificações:', error);
+            JW.notificacoes = []; // Inicializa como array vazio em caso de erro
+        }
+    };
+
+    JW.atualizarBadgeNotificacoes = function() {
+        // Verificar se notificacoes existe e é um array
+        if (!JW.notificacoes || !Array.isArray(JW.notificacoes)) {
+            JW.notificacoes = [];
+        }
+        
+        var naoLidas = 0;
+        for (var i = 0; i < JW.notificacoes.length; i++) {
+            if (!JW.notificacoes[i].lida) naoLidas++;
+        }
+        var badge = document.getElementById('notificationsCount');
+        if (naoLidas > 0 && badge) {
+            badge.textContent = naoLidas > 9 ? '9+' : naoLidas;
+            badge.classList.remove('d-none');
+        } else if (badge) {
+            badge.classList.add('d-none');
+        }
+    };
+
+    JW.toggleNotifications = function() {
+        var dropdown = document.getElementById('notificationsDropdown');
+        if (dropdown) dropdown.classList.toggle('show');
+        if (dropdown && dropdown.classList.contains('show')) JW.renderizarNotificacoes();
+    };
+
+    JW.renderizarNotificacoes = function() {
+        var lista = document.getElementById('notificationsList');
+        if (!lista) return;
+        if (JW.notificacoes.length === 0) {
+            lista.innerHTML = '<div class="text-center" style="padding: 2rem;"><i class="fas fa-bell-slash" style="font-size: 2rem; color: var(--text-muted);"></i><p>Nenhuma notificação</p></div>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < JW.notificacoes.length; i++) {
+            var notif = JW.notificacoes[i];
+            html += '<div class="notification-item ' + (notif.lida ? '' : 'unread') + '" onclick="JW.abrirNotificacao(\'' + notif.id + '\', \'' + (notif.acao || '') + '\')"><div class="notification-title"><i class="' + notif.icone + '" style="color: var(--primary);"></i> ' + notif.titulo + '</div><div class="notification-message">' + notif.mensagem.substring(0, 100) + (notif.mensagem.length > 100 ? '...' : '') + '</div><div class="notification-time">' + notif.dataEnvio + '</div></div>';
+        }
+        lista.innerHTML = html;
+    };
+
+    JW.abrirNotificacao = async function(id, acao) {
+        await JW.chamarGoogleScript('marcarNotificacaoLidaV3', id, JW.usuarioLogado.email);
+        for (var i = 0; i < JW.notificacoes.length; i++) if (JW.notificacoes[i].id === id) JW.notificacoes[i].lida = true;
+        JW.atualizarBadgeNotificacoes();
+        JW.renderizarNotificacoes();
+        if (acao) {
+            if (acao.startsWith('http')) window.open(acao, '_blank');
+            else if (acao.startsWith('tab:')) JW.abrirTab(acao.replace('tab:', ''));
+            else if (acao.startsWith('produto:')) {
+                var produtoId = acao.replace('produto:', '');
+                await JW.abrirTab('produtos');
+                setTimeout(function() {
+                    var card = document.querySelector('[data-produto-id="' + produtoId + '"]');
+                    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 250);
+            }
+        }
+    };
+
+    JW.marcarTodasLidas = async function() {
+        await JW.chamarGoogleScript('marcarTodasNotificacoesLidasV3', JW.usuarioLogado.email);
+        for (var i = 0; i < JW.notificacoes.length; i++) JW.notificacoes[i].lida = true;
+        JW.atualizarBadgeNotificacoes();
+        JW.renderizarNotificacoes();
+    };
+
+        // ============================================
+    // TEMPLATES
+    // ============================================
+
+    JW.getTemplateOrcamento = function() {
+        JW.orcamentoAnexo = null;
+        return `
+            <div class="slide-up">
+                <h2><i class="fas fa-file-invoice-dollar"></i> Solicitar Orçamento</h2>
+                
+                <div class="card">
+                    <h3>Novo Orçamento</h3>
+                    <div class="form-group">
+                        <label class="form-label">Tipo de Serviço</label>
+                        <select id="tipoServico" class="form-select" required>
+                            <option value="">Selecione...</option>
+                            <option value="Limpeza">Limpeza de Piscina</option>
+                            <option value="Manutenção">Manutenção Preventiva</option>
+                            <option value="Reparo">Reparo de Equipamentos</option>
+                            <option value="Instalação">Instalação de Equipamentos</option>
+                            <option value="Tratamento">Tratamento Químico</option>
+                            <option value="Construção">Construção de Piscina</option>
+                            <option value="Reforma">Reforma de Piscina</option>
+                            <option value="Troca de Água">Troca de Água</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Descrição Detalhada</label>
+                        <textarea id="descricaoOrcamento" class="form-textarea" rows="5" placeholder="Descreva o serviço necessário..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Telefone para Contato</label>
+                        <input type="tel" id="telefoneOrcamento" class="form-input" value="${(JW.usuarioLogado && JW.usuarioLogado.telefone) ? JW.usuarioLogado.telefone : ''}" oninput="JW.formatarTelefone(this)">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Observações Adicionais</label>
+                        <textarea id="observacoesOrcamento" class="form-textarea" rows="3" placeholder="Endereço, horário preferencial..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Imagem do local</label>
+                        <div class="attachment-actions">
+                            <button type="button" class="btn btn-secondary" onclick="JW.abrirAnexoOrcamento('camera')">
+                                <i class="fas fa-camera"></i> Tirar foto
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="JW.abrirAnexoOrcamento('arquivo')">
+                                <i class="fas fa-image"></i> Anexar imagem
+                            </button>
+                        </div>
+                        <input id="orcamentoFotoCamera" type="file" accept="image/*" capture="environment" class="d-none" onchange="JW.anexoOrcamentoSelecionado(this)">
+                        <input id="orcamentoFotoArquivo" type="file" accept="image/*" class="d-none" onchange="JW.anexoOrcamentoSelecionado(this)">
+                        <div id="orcamentoAnexoPreview" class="attachment-preview">
+                            <i class="fas fa-paperclip"></i>
+                            <span id="orcamentoAnexoNome"></span>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="JW.limparAnexoOrcamento()">Remover</button>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-success" onclick="JW.solicitarOrcamento()">
+                        <i class="fas fa-paper-plane"></i> Enviar Solicitação
+                    </button>
+                </div>
+            </div>
+        `;
+    };
+
+    JW.getTemplateAcessoNegado = function() {
+        return `<div class="card text-center"><h3><i class="fas fa-exclamation-triangle"></i> Acesso Negado</h3><p>Você não tem permissão para acessar esta área.</p></div>`;
+    };
+
+    JW.getTemplateErro = function(tab, detalhe) {
+        return `<div class="card text-center"><h3><i class="fas fa-exclamation-triangle"></i> Erro ao Carregar</h3><p>Não foi possível carregar o conteúdo. Tente novamente.</p>${detalhe ? `<p class="text-muted small">${detalhe}</p>` : ''}<button class="btn btn-primary mt-4" onclick="JW.abrirTab('${tab}')"><i class="fas fa-redo"></i> Tentar Novamente</button></div>`;
+    };
+
+    JW.abrirAnexoOrcamento = function(tipo) {
+        var input = document.getElementById(tipo === 'camera' ? 'orcamentoFotoCamera' : 'orcamentoFotoArquivo');
+        if (input) input.click();
+    };
+
+    JW.anexoOrcamentoSelecionado = function(input) {
+        var arquivo = input && input.files && input.files[0];
+        if (!arquivo) return;
+        if (!arquivo.type || arquivo.type.indexOf('image/') !== 0) {
+            alert('❌ Selecione uma imagem valida.');
+            return;
+        }
+
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            JW.orcamentoAnexo = {
+                nome: arquivo.name || ('orcamento-' + Date.now() + '.jpg'),
+                dataUrl: e.target.result
+            };
+            var preview = document.getElementById('orcamentoAnexoPreview');
+            var nome = document.getElementById('orcamentoAnexoNome');
+            if (nome) nome.textContent = JW.orcamentoAnexo.nome;
+            if (preview) preview.classList.add('active');
+        };
+        reader.readAsDataURL(arquivo);
+    };
+
+    JW.limparAnexoOrcamento = function() {
+        JW.orcamentoAnexo = null;
+        var preview = document.getElementById('orcamentoAnexoPreview');
+        var camera = document.getElementById('orcamentoFotoCamera');
+        var arquivo = document.getElementById('orcamentoFotoArquivo');
+        if (preview) preview.classList.remove('active');
+        if (camera) camera.value = '';
+        if (arquivo) arquivo.value = '';
+    };
+
+    JW.enviarAnexoOrcamento = async function() {
+        if (!JW.orcamentoAnexo || !JW.orcamentoAnexo.dataUrl) return null;
+        return await JW.chamarGoogleScript('uploadImagemParaDrive', JW.orcamentoAnexo.dataUrl, JW.orcamentoAnexo.nome);
+    };
+
+    JW.solicitarOrcamento = async function() {
+        var tipoServico = document.getElementById('tipoServico').value;
+        var descricao = document.getElementById('descricaoOrcamento').value;
+        var telefone = document.getElementById('telefoneOrcamento').value;
+        var observacoes = document.getElementById('observacoesOrcamento').value;
+        if (!tipoServico || !descricao) { alert('❌ Preencha tipo de serviço e descrição!'); return; }
+        if (descricao.length < 10) { alert('❌ Descrição deve ter pelo menos 10 caracteres'); return; }
+        JW.mostrarLoading(JW.orcamentoAnexo ? 'Enviando anexo...' : 'Enviando...');
+        try {
+            var anexoURL = await JW.enviarAnexoOrcamento();
+            if (JW.orcamentoAnexo && !anexoURL) {
+                alert('❌ Nao foi possivel enviar a imagem. Tente novamente ou remova o anexo.');
+                return;
+            }
+            var resultado = await JW.chamarGoogleScript('solicitarOrcamento', {
+                cliente: JW.usuarioLogado.usuario,
+                email: JW.usuarioLogado.email,
+                telefone: telefone,
+                tipoServico: tipoServico,
+                descricao: descricao,
+                observacoes: observacoes,
+                imagemURL: anexoURL || '',
+                arquivoURL: anexoURL || '',
+                arquivoNome: JW.orcamentoAnexo ? JW.orcamentoAnexo.nome : ''
+            });
+            if (resultado && resultado.success) {
+                alert('✅ ' + resultado.message);
+                document.getElementById('tipoServico').value = '';
+                document.getElementById('descricaoOrcamento').value = '';
+                document.getElementById('telefoneOrcamento').value = JW.usuarioLogado.telefone || '';
+                document.getElementById('observacoesOrcamento').value = '';
+                JW.limparAnexoOrcamento();
+            } else {
+                alert('❌ ' + (resultado ? resultado.message : 'Erro ao enviar'));
+            }
+        } catch (error) { alert('❌ Erro: ' + error.message); }
+        finally { JW.esconderLoading(); }
+    };
+
+    // ============================================
+    // INICIALIZAÇÃO
+    // ============================================
+
+    JW.inicializar = function() {
+        if (JW._inicializado) return;
+        JW._inicializado = true;
+
+        console.log('🚀 Sistema JW Piscinas iniciado');
+        
+        var tabLogin = document.getElementById('tabLoginBtn');
+        var tabRegister = document.getElementById('tabRegisterBtn');
+        if (tabLogin) tabLogin.addEventListener('click', function(e) { e.preventDefault(); JW.mostrarLoginForm(); });
+        if (tabRegister) tabRegister.addEventListener('click', function(e) { e.preventDefault(); JW.mostrarRegisterForm(); });
+        
+        var btnLogin = document.getElementById('btnLogin');
+        var btnRegister = document.getElementById('btnRegister');
+        var btnLogout = document.getElementById('btnLogout');
+        if (btnLogin) {
+            btnLogin.dataset.bound = '1';
+            btnLogin.addEventListener('click', JW.fazerLogin);
+        }
+        if (btnRegister) {
+            btnRegister.dataset.bound = '1';
+            btnRegister.addEventListener('click', JW.fazerCadastro);
+        }
+        if (btnLogout) btnLogout.addEventListener('click', JW.fazerLogout);
+        
+        var registerSenha = document.getElementById('registerSenha');
+        if (registerSenha) registerSenha.addEventListener('input', JW.validarSenhaCadastro);
+        
+        var loginUsuario = document.getElementById('loginUsuario');
+        var loginSenha = document.getElementById('loginSenha');
+        if (loginUsuario) loginUsuario.addEventListener('keypress', function(e) { if (e.key === 'Enter') JW.fazerLogin(); });
+        if (loginSenha) loginSenha.addEventListener('keypress', function(e) { if (e.key === 'Enter') JW.fazerLogin(); });
+        
+        document.addEventListener('click', function(e) {
+            var dropdown = document.getElementById('notificationsDropdown');
+            var icon = document.querySelector('.notifications-icon');
+            if (dropdown && icon && !icon.contains(e.target) && !dropdown.contains(e.target)) dropdown.classList.remove('show');
+        });
+        
+        JW.mostrarLoginForm();
+        JW.mostrarLoading('Carregando sistema...');
+        setTimeout(function() { JW.esconderLoading(); }, 800);
+    };
+
+    window.JW = JW;
+})();
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() { JW.inicializar(); });
+} else {
+    JW.inicializar();
+}
+window.__jwScriptLoaded = true;
+</script>

@@ -1,0 +1,38 @@
+<!-- Header.html -->
+<button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="JW.toggleMobileMenu()">
+  <i class="fas fa-bars"></i>
+</button>
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-container">
+      <div class="jw-logo">
+        <div class="pool-icon">
+          <div class="pool-water"></div>
+          <div class="pool-wave"></div>
+          <div class="pool-ladder"></div>
+          <div class="ladder-step step-1"></div>
+          <div class="ladder-step step-2"></div>
+          <div class="ladder-step step-3"></div>
+        </div>
+      </div>
+      <div class="logo-text">
+        <span class="logo-brand">Piscinas</span>
+        <span class="logo-subtitle">Gestão</span>
+      </div>
+    </div>
+  </div>
+
+  <nav class="nav-menu" id="mainNav">
+    <div id="dynamicMenu"></div>
+  </nav>
+
+  <div class="user-profile-sidebar" id="userProfileSidebar" onclick="JW.abrirPerfil()">
+    <div class="user-info">
+      <div class="user-details">
+        <div class="user-name" id="sidebarUserName">Carregando...</div>
+        <div class="user-role" id="sidebarUserRole">Cliente</div>
+      </div>
+    </div>
+  </div>
+</div>

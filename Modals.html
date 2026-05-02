@@ -1,0 +1,118 @@
+<!-- Modals.html -->
+<!-- Backdrop -->
+<div id="modalBackdrop" aria-hidden="true" class="d-none"></div>
+
+<!-- Modal: Comprar -->
+<div id="modalComprar" class="modal d-none" role="dialog" aria-modal="true" aria-labelledby="modalComprarTitle">
+  <div class="modal-header">
+    <h3 id="modalComprarTitle"><i class="fas fa-shopping-cart"></i> <span id="modalProdutoNome">Produto</span></h3>
+    <button class="modal-close" onclick="JW.fecharModal('modalComprar')" aria-label="Fechar">&times;</button>
+  </div>
+
+  <div class="modal-body">
+    <div style="display:flex; gap:1rem; flex-wrap: wrap;">
+      <div id="modalProdutoImagem" style="width:200px; height:150px; border-radius:var(--radius-md); background:var(--bg); display:flex; align-items:center; justify-content:center; margin:0 auto;">
+        <i class="fas fa-box" style="font-size:2rem; color:var(--text-muted)"></i>
+      </div>
+
+      <div style="flex:1; min-width:200px;">
+        <p id="modalProdutoDescricao" class="text-muted">Descrição do produto</p>
+        <div style="display:flex; gap:1rem; align-items:center; margin: 1rem 0;">
+          <div style="font-size:1.5rem; font-weight:700; color:var(--primary);" id="modalProdutoPreco">R$ 0,00</div>
+          <div class="text-muted" id="modalProdutoEstoque">0 em estoque</div>
+        </div>
+
+        <div style="display:flex; gap:0.5rem; align-items:center; margin:1rem 0;">
+          <label>Quantidade:</label>
+          <input id="modalProdutoQuantidade" type="number" min="1" value="1" style="width:80px; padding:0.5rem; border:1px solid var(--border); border-radius:var(--radius-md);" onchange="JW.atualizarTotalModal()">
+          <div id="modalProdutoTotal" style="font-weight:600;">Total: R$ 0,00</div>
+        </div>
+
+        <div style="display:flex; gap:0.5rem;">
+          <button class="btn btn-success" onclick="JW.confirmarCompra()">Confirmar Compra</button>
+          <button class="btn btn-secondary" onclick="JW.fecharModal('modalComprar')">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Recuperação de Senha -->
+<div id="modalRecuperacao" class="modal d-none" role="dialog" aria-modal="true" aria-labelledby="modalRecTitle">
+  <div class="modal-header">
+    <h3 id="modalRecTitle"><i class="fas fa-key"></i> Recuperação de Senha</h3>
+    <button class="modal-close" onclick="JW.fecharModal('modalRecuperacao')" aria-label="Fechar">&times;</button>
+  </div>
+
+  <div class="modal-body">
+    <!-- Step 1: Solicitar código -->
+    <div id="step1" class="recovery-steps active">
+      <p class="text-muted">Digite seu e-mail para receber um código de recuperação:</p>
+      <div class="form-group">
+        <label class="form-label">E-mail</label>
+        <input id="recoveryEmail" class="form-input" type="email" placeholder="seu@email.com">
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button class="btn btn-primary" onclick="JW.solicitarCodigoRecuperacao()">Enviar código</button>
+        <button class="btn btn-secondary" onclick="JW.fecharModal('modalRecuperacao')">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Verificar código -->
+    <div id="step2" class="recovery-steps d-none">
+      <p class="text-muted">Digite o código de 6 dígitos enviado ao seu e-mail:</p>
+      <div id="codeInputsContainer" class="code-inputs"></div>
+      <div style="display:flex; gap:0.5rem;">
+        <button class="btn btn-primary" onclick="JW.verificarCodigoRecuperacao()">Verificar</button>
+        <button class="btn btn-secondary" onclick="JW.reenviarCodigo()">Reenviar</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Nova senha -->
+    <div id="step3" class="recovery-steps d-none">
+      <p class="text-muted">Digite sua nova senha:</p>
+      <div class="form-group">
+        <label class="form-label">Nova senha</label>
+        <input id="novaSenha" class="form-input" type="password" placeholder="Mínimo 4 caracteres">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirmar nova senha</label>
+        <input id="confirmarNovaSenha" class="form-input" type="password" placeholder="Digite novamente">
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button class="btn btn-primary" onclick="JW.redefinirSenha()">Redefinir senha</button>
+        <button class="btn btn-secondary" onclick="JW.fecharModal('modalRecuperacao')">Cancelar</button>
+      </div>
+    </div>
+
+    <div id="recoveryMessage" class="alert d-none" style="margin-top:1rem;"></div>
+  </div>
+</div>
+
+<!-- Modal: Alterar Senha (do perfil) -->
+<div id="modalAlterarSenha" class="modal d-none" role="dialog" aria-modal="true">
+  <div class="modal-header">
+    <h3><i class="fas fa-key"></i> Alterar Senha</h3>
+    <button class="modal-close" onclick="JW.fecharModal('modalAlterarSenha')">&times;</button>
+  </div>
+
+  <div class="modal-body">
+    <div class="form-group">
+      <label class="form-label">Senha atual</label>
+      <input id="senhaAtual" class="form-input" type="password">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nova senha</label>
+      <input id="novaSenhaPerfil" class="form-input" type="password">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirmar nova senha</label>
+      <input id="confirmarNovaSenhaPerfil" class="form-input" type="password">
+    </div>
+    <div style="display:flex; gap:0.5rem;">
+      <button class="btn btn-primary" onclick="JW.alterarSenha()">Salvar</button>
+      <button class="btn btn-secondary" onclick="JW.fecharModal('modalAlterarSenha')">Cancelar</button>
+    </div>
+    <div id="senhaMessage" class="alert d-none" style="margin-top:1rem;"></div>
+  </div>
+</div>
