@@ -1,58 +1,45 @@
-<!doctype html>
-<html lang="pt-BR">
+<!DOCTYPE html>
+<html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0077B6">
-  <title>JW Piscinas</title>
-  <style>
-    html,
-    body {
-      background: #f6f8fb;
-      height: 100%;
-      margin: 0;
-      overflow: hidden;
-      padding: 0;
-      width: 100%;
-    }
-
-    body {
-      min-height: 100dvh;
-      position: fixed;
-      inset: 0;
-    }
-
-    .jw-app-frame {
-      border: 0;
-      display: block;
-      height: 100dvh;
-      left: 0;
-      min-height: 100svh;
-      position: fixed;
-      top: 0;
-      width: 100vw;
-    }
-
-    .jw-noscript {
-      color: #172033;
-      font-family: Arial, sans-serif;
-      margin: 32px;
-    }
-  </style>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>JW Piscinas - Sistema</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <?!= include('Style'); ?>
 </head>
 <body>
-  <iframe
-    class="jw-app-frame"
-    src="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec"
-    title="JW Piscinas"
-    allow="clipboard-read; clipboard-write; fullscreen"
-  ></iframe>
-
-  <noscript>
-    <div class="jw-noscript">
-      <p>Ative o JavaScript para abrir o sistema.</p>
-      <p><a href="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec">Abrir sistema</a></p>
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-card">
+            <div class="loading-spinner-modern"></div>
+            <div id="loadingText" class="loading-text-modern">Carregando JW Piscinas...</div>
+            <div class="loading-subtext">Aguarde um momento</div>
+        </div>
     </div>
-  </noscript>
+
+    <?!= include('Header'); ?>
+    <?!= include('LoginScreen'); ?>
+    <?!= include('MainApp'); ?>
+    <?!= include('Modals'); ?>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+    <?!= include('LoginBootstrap'); ?>
+    <script>
+      window.__jwBeforeScriptInclude = true;
+      window.addEventListener('error', function(event) {
+        window.__jwLoadError = event.message || 'Erro desconhecido';
+        var el = document.getElementById('loginMessage');
+        if (!el) return;
+        el.textContent = 'Erro ao carregar o sistema: ' + (event.message || 'verifique a implantação mais recente.');
+        el.className = 'alert alert-error';
+        el.style.display = 'block';
+      });
+    </script>
+    <script>
+      window.__jwAfterScriptInclude = true;
+      window.__jwRuntimeMode = "bootstrap";
+      window.__jwScriptAssetLoaded = false;
+      window.__jwScriptSkipped = true;
+    </script>
 </body>
 </html>

@@ -1453,11 +1453,12 @@
       return;
     }
 
+    var usarFirebaseChat = JW.iniciarFirebaseChat();
     var produtos = await JW.chamarGoogleScript("getProdutos");
     JW.produtosCache = produtos || [];
     var notif = await JW.chamarGoogleScript("getAllNotificacoesV3");
     var historico = notif && notif.itens ? notif.itens : [];
-    var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
+    var conversasResp = usarFirebaseChat ? { conversas: [] } : await JW.chamarGoogleScript("getConversasAdminV3");
     var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
     var options = '<option value="">Sem item vinculado</option>';
     for (var i = 0; i < JW.produtosCache.length; i++) {
@@ -1475,13 +1476,199 @@
         '<label style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;"><input id="notifEmail" type="checkbox"> Enviar tambem por email</label>' +
         '<button class="btn btn-primary" onclick="JW.enviarNotificacaoAdmin()"><i class="fas fa-paper-plane"></i> Enviar notificacao</button>' +
       '</div>' +
-      '<div class="card"><h3>Mensagens de clientes</h3>' + JW.renderConversasAdmin(conversas) + '</div>' +
+      '<div class="card"><h3>Mensagens de clientes</h3><div id="adminConversasFirebase">' + (usarFirebaseChat ? '<p class="text-muted">Conectando ao Firebase...</p>' : JW.renderConversasAdmin(conversas)) + '</div></div>' +
       '<div class="card"><h3>Historico de notificacoes</h3>' + JW.renderHistoricoNotificacoes(historico) + '</div>' +
       '</div>'
     );
+    if (usarFirebaseChat) JW.observarConversasAdminFirebase("adminConversasFirebase");
   };
 
   JW.carregarAdmin = JW.carregarMensagensDiretas;
+
+  JW.firebaseChatConfig = {
+    apiKey: "AIzaSyB8zVxedBW7xJol9m-9D0X0jRNiWuqEvgk",
+    authDomain: "jwpiscinas.firebaseapp.com",
+    databaseURL: "https://jwpiscinas-default-rtdb.firebaseio.com",
+    projectId: "jwpiscinas",
+    storageBucket: "jwpiscinas.firebasestorage.app",
+    messagingSenderId: "668426196860",
+    appId: "1:668426196860:web:5999815ecb7cf0048876f9"
+  };
+
+  JW.firebaseChat = {
+    app: null,
+    db: null,
+    adminConversasRef: null,
+    adminConversaRef: null,
+    clienteConversaRef: null,
+    clienteBadgeRef: null
+  };
+
+  JW.iniciarFirebaseChat = function() {
+    if (!window.firebase || !firebase.apps || !firebase.database) return false;
+    try {
+      if (!JW.firebaseChat.app) {
+        JW.firebaseChat.app = firebase.apps.length ? firebase.app() : firebase.initializeApp(JW.firebaseChatConfig);
+        JW.firebaseChat.db = firebase.database();
+      }
+      return !!JW.firebaseChat.db;
+    } catch (error) {
+      console.warn("Firebase chat indisponivel:", error);
+      return false;
+    }
+  };
+
+  JW.chatKeyFirebase = function(email) {
+    var normalizado = String(email || "").trim().toLowerCase();
+    try {
+      return btoa(unescape(encodeURIComponent(normalizado))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    } catch (error) {
+      return normalizado.replace(/[.#$/\[\]]/g, "_");
+    }
+  };
+
+  JW.dataHoraFirebase = function(valor) {
+    var data = valor ? new Date(valor) : new Date();
+    if (isNaN(data.getTime())) data = new Date();
+    return data.toLocaleString("pt-BR");
+  };
+
+  JW.mensagensFirebaseArray = function(valor) {
+    var mensagens = [];
+    valor = valor || {};
+    Object.keys(valor).forEach(function(id) {
+      mensagens.push(Object.assign({ id: id }, valor[id] || {}));
+    });
+    mensagens.sort(function(a, b) {
+      return (parseInt(a.timestamp, 10) || 0) - (parseInt(b.timestamp, 10) || 0);
+    });
+    return mensagens.map(function(m) {
+      return Object.assign({}, m, { dataHora: m.dataHora || JW.dataHoraFirebase(m.timestamp) });
+    });
+  };
+
+  JW.conversasFirebaseArray = function(valor) {
+    var conversas = [];
+    valor = valor || {};
+    Object.keys(valor).forEach(function(id) {
+      conversas.push(Object.assign({ id: id }, valor[id] || {}));
+    });
+    conversas.sort(function(a, b) {
+      return (parseInt(b.ultimaTimestamp, 10) || 0) - (parseInt(a.ultimaTimestamp, 10) || 0);
+    });
+    return conversas.map(function(c) {
+      return Object.assign({}, c, { ultimaData: c.ultimaData || JW.dataHoraFirebase(c.ultimaTimestamp) });
+    });
+  };
+
+  JW.atualizarBadgeFirebase = function(total) {
+    total = parseInt(total, 10) || 0;
+    var badge = document.getElementById("supportChatBadge");
+    if (badge) {
+      badge.textContent = total > 9 ? "9+" : total;
+      badge.classList.toggle("d-none", total === 0);
+    }
+    var widget = document.getElementById("supportChatWidget");
+    if (widget) widget.classList.toggle("has-unread", total > 0);
+  };
+
+  JW.observarConversasAdminFirebase = function(containerId) {
+    if (!JW.iniciarFirebaseChat() || !JW.isAdmin()) return false;
+    if (JW.firebaseChat.adminConversasRef) JW.firebaseChat.adminConversasRef.off();
+    var ref = JW.firebaseChat.db.ref("jwChat/conversations");
+    JW.firebaseChat.adminConversasRef = ref;
+    ref.on("value", function(snapshot) {
+      var conversas = JW.conversasFirebaseArray(snapshot.val());
+      var totalNaoLidas = 0;
+      for (var i = 0; i < conversas.length; i++) totalNaoLidas += parseInt(conversas[i].naoLidasAdmin, 10) || 0;
+      var destino = document.getElementById(containerId);
+      if (destino) destino.innerHTML = JW.renderConversasAdmin(conversas);
+      JW.atualizarBadgeFirebase(totalNaoLidas);
+    }, function(error) {
+      var destino = document.getElementById(containerId);
+      if (destino) destino.innerHTML = '<p class="text-muted">Nao foi possivel conectar ao Firebase.</p>';
+      console.warn("Erro ao ouvir conversas Firebase:", error);
+    });
+    return true;
+  };
+
+  JW.observarConversaFirebase = function(clienteEmail, containerId) {
+    if (!JW.iniciarFirebaseChat()) return false;
+    var id = JW.chatKeyFirebase(clienteEmail);
+    var refName = JW.isAdmin() ? "adminConversaRef" : "clienteConversaRef";
+    if (JW.firebaseChat[refName]) JW.firebaseChat[refName].off();
+    var ref = JW.firebaseChat.db.ref("jwChat/messages/" + id);
+    JW.firebaseChat[refName] = ref;
+    ref.on("value", function(snapshot) {
+      var hist = document.getElementById(containerId);
+      if (!hist) return;
+      hist.innerHTML = JW.renderMensagensChat(JW.mensagensFirebaseArray(snapshot.val()));
+      hist.scrollTop = hist.scrollHeight;
+    }, function(error) {
+      var hist = document.getElementById(containerId);
+      if (hist) hist.innerHTML = '<p class="text-muted">Nao foi possivel carregar a conversa em tempo real.</p>';
+      console.warn("Erro ao ouvir mensagens Firebase:", error);
+    });
+    var campoLeitura = JW.isAdmin() ? "naoLidasAdmin" : "naoLidasCliente";
+    JW.firebaseChat.db.ref("jwChat/conversations/" + id + "/" + campoLeitura).set(0).catch(function() {});
+    return true;
+  };
+
+  JW.observarBadgeClienteFirebase = function() {
+    if (!JW.iniciarFirebaseChat() || !JW.usuarioLogado || JW.isAdmin()) return false;
+    if (JW.firebaseChat.clienteBadgeRef) JW.firebaseChat.clienteBadgeRef.off();
+    var id = JW.chatKeyFirebase(JW.usuarioLogado.email);
+    var ref = JW.firebaseChat.db.ref("jwChat/conversations/" + id + "/naoLidasCliente");
+    JW.firebaseChat.clienteBadgeRef = ref;
+    ref.on("value", function(snapshot) {
+      JW.atualizarBadgeFirebase(snapshot.val() || 0);
+    }, function(error) {
+      console.warn("Erro ao ouvir badge Firebase:", error);
+    });
+    return true;
+  };
+
+  JW.enviarMensagemFirebase = async function(dados) {
+    if (!JW.iniciarFirebaseChat()) throw new Error("Firebase indisponivel.");
+    dados = dados || {};
+    var mensagem = String(dados.mensagem || "").trim();
+    if (!mensagem) throw new Error("Digite uma mensagem.");
+    var remetenteTipo = dados.remetenteTipo || "Cliente";
+    var clienteEmail = String(remetenteTipo === "Administrador" ? dados.clienteEmail : dados.email || "").trim().toLowerCase();
+    if (!clienteEmail) throw new Error("Cliente nao identificado.");
+    var conversaId = JW.chatKeyFirebase(clienteEmail);
+    var usuario = JW.usuarioLogado || {};
+    var remetenteEmail = String(dados.email || usuario.email || "").trim().toLowerCase();
+    var remetenteNome = dados.usuario || usuario.usuario || remetenteEmail;
+    var clienteNome = dados.clienteNome || (remetenteTipo === "Administrador" ? clienteEmail : remetenteNome);
+    var root = JW.firebaseChat.db.ref();
+    var novaMensagemRef = root.child("jwChat/messages/" + conversaId).push();
+    var agora = Date.now();
+    var item = {
+      id: novaMensagemRef.key,
+      timestamp: firebase.database.ServerValue.TIMESTAMP,
+      dataHora: JW.dataHoraFirebase(agora),
+      clienteEmail: clienteEmail,
+      clienteNome: clienteNome,
+      remetenteEmail: remetenteEmail,
+      remetenteNome: remetenteNome,
+      remetenteTipo: remetenteTipo,
+      mensagem: mensagem
+    };
+    var updates = {};
+    updates["jwChat/messages/" + conversaId + "/" + novaMensagemRef.key] = item;
+    updates["jwChat/conversations/" + conversaId + "/clienteEmail"] = clienteEmail;
+    updates["jwChat/conversations/" + conversaId + "/clienteNome"] = clienteNome;
+    updates["jwChat/conversations/" + conversaId + "/ultimaMensagem"] = mensagem;
+    updates["jwChat/conversations/" + conversaId + "/ultimaData"] = JW.dataHoraFirebase(agora);
+    updates["jwChat/conversations/" + conversaId + "/ultimaTimestamp"] = firebase.database.ServerValue.TIMESTAMP;
+    await root.update(updates);
+    var contador = remetenteTipo === "Administrador" ? "naoLidasCliente" : "naoLidasAdmin";
+    await root.child("jwChat/conversations/" + conversaId + "/" + contador).transaction(function(valor) {
+      return (parseInt(valor, 10) || 0) + 1;
+    });
+    return { success: true, message: "Mensagem enviada.", id: novaMensagemRef.key };
+  };
 
   JW.renderConversasAdmin = function(conversas) {
     if (!conversas || !conversas.length) return '<p class="text-muted">Nenhuma conversa iniciada.</p>';
@@ -1498,6 +1685,19 @@
 
   JW.abrirConversaAdmin = async function(clienteEmail) {
     JW.chatClienteAtual = clienteEmail;
+    if (JW.iniciarFirebaseChat()) {
+      JW.abrirModalSistema(
+        '<i class="fas fa-comments"></i> Conversa',
+        '<div class="chat-history" id="chatHistoryAdmin"><p class="text-muted">Conectando ao Firebase...</p></div>' +
+        '<textarea id="chatMensagemAdmin" class="form-input" rows="3" placeholder="Responder ao cliente"></textarea>',
+        '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">' +
+          '<button class="btn btn-primary" onclick="JW.enviarMensagemAdmin()">Enviar resposta</button>' +
+          '<button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Fechar</button>' +
+        '</div>'
+      );
+      JW.observarConversaFirebase(clienteEmail, "chatHistoryAdmin");
+      return;
+    }
     JW.mostrarLoading("Carregando conversa...");
     try {
       var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", clienteEmail);
@@ -1524,6 +1724,26 @@
     var msg = (document.getElementById("chatMensagemAdmin") || {}).value || "";
     if (!msg.trim()) {
       JW.toast("Digite uma resposta.", "error");
+      return;
+    }
+    if (JW.iniciarFirebaseChat()) {
+      var campoFirebase = document.getElementById("chatMensagemAdmin");
+      if (campoFirebase) campoFirebase.disabled = true;
+      try {
+        await JW.enviarMensagemFirebase({
+          email: JW.usuarioLogado.email,
+          usuario: JW.usuarioLogado.usuario,
+          remetenteTipo: "Administrador",
+          clienteEmail: JW.chatClienteAtual,
+          mensagem: msg
+        });
+        if (campoFirebase) campoFirebase.value = "";
+        JW.toast("Resposta enviada.", "success");
+      } catch (error) {
+        JW.toast("Erro ao responder: " + (error.message || error), "error");
+      } finally {
+        if (campoFirebase) campoFirebase.disabled = false;
+      }
       return;
     }
     JW.mostrarLoading("Enviando resposta...");
@@ -1630,6 +1850,7 @@
   };
 
   JW.atualizarBadgeChat = function() {
+    if (!JW.isAdmin() && JW.observarBadgeClienteFirebase()) return;
     var badge = document.getElementById("supportChatBadge");
     if (!badge) return;
     var total = 0;
@@ -1645,6 +1866,10 @@
 
   JW.carregarBadgeMensagensAdmin = async function() {
     if (!JW.isAdmin()) return;
+    if (JW.iniciarFirebaseChat()) {
+      if (!JW.firebaseChat.adminConversasRef) JW.observarConversasAdminFirebase("");
+      return;
+    }
     try {
       var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
       var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
@@ -1913,6 +2138,10 @@
     var hist = document.getElementById("chatHistoryAdminFloat");
     if (widget) widget.classList.add("open");
     if (!hist) return;
+    if (JW.observarConversasAdminFirebase("chatHistoryAdminFloat")) {
+      hist.innerHTML = '<p class="text-muted">Conectando ao Firebase...</p>';
+      return;
+    }
     hist.innerHTML = '<p class="text-muted">Carregando conversas...</p>';
     try {
       var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
@@ -1930,6 +2159,11 @@
     var hist = document.getElementById("chatHistoryCliente");
     if (widget) widget.classList.add("open");
     if (!JW.usuarioLogado || !hist) return;
+    if (JW.iniciarFirebaseChat()) {
+      hist.innerHTML = '<p class="text-muted">Conectando ao Firebase...</p>';
+      JW.observarConversaFirebase(JW.usuarioLogado.email, "chatHistoryCliente");
+      return;
+    }
     hist.innerHTML = '<p class="text-muted">Carregando conversa...</p>';
     try {
       var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", JW.usuarioLogado.email);
@@ -1963,6 +2197,23 @@
     var campo = document.getElementById("chatMensagemCliente");
     var hist = document.getElementById("chatHistoryCliente");
     if (campo) campo.disabled = true;
+    if (JW.iniciarFirebaseChat()) {
+      try {
+        var resultadoFirebase = await JW.enviarMensagemFirebase({
+          email: JW.usuarioLogado.email,
+          usuario: JW.usuarioLogado.usuario,
+          remetenteTipo: JW.usuarioLogado.tipo || "Cliente",
+          mensagem: msg
+        });
+        if (campo) campo.value = "";
+        JW.toast(resultadoFirebase.message || "Mensagem enviada.", "success");
+      } catch (error) {
+        JW.toast("Erro ao enviar mensagem: " + (error.message || error), "error");
+      } finally {
+        if (campo) campo.disabled = false;
+      }
+      return;
+    }
     try {
       var resultado = await JW.chamarGoogleScript("enviarMensagemChatV3", {
         email: JW.usuarioLogado.email,
@@ -1983,6 +2234,12 @@
   };
 
   JW.logout = function() {
+    ["adminConversasRef", "adminConversaRef", "clienteConversaRef", "clienteBadgeRef"].forEach(function(refName) {
+      if (JW.firebaseChat && JW.firebaseChat[refName]) {
+        JW.firebaseChat[refName].off();
+        JW.firebaseChat[refName] = null;
+      }
+    });
     JW.usuarioLogado = null;
     document.body.classList.remove("logged-in");
     document.body.classList.remove("admin-mode");

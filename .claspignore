@@ -2,3 +2,6 @@ documentos/**
 tools/*.cjs
 404.html
 index.html
+firebase.json
+database.rules.json
+.firebaserc

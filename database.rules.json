@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "jwChat": {
+      ".read": true,
+      ".write": true,
+      "conversations": {
+        ".indexOn": ["ultimaTimestamp"]
+      },
+      "messages": {
+        "$conversationId": {
+          ".indexOn": ["timestamp"]
+        }
+      }
+    }
+  }
+}
