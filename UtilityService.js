@@ -1682,6 +1682,33 @@ function getConversasAdminV3() {
   }
 }
 
+function marcarMensagensAdminLidasV3(emailCliente) {
+  try {
+    var emailLower = emailCliente ? emailCliente.toString().trim().toLowerCase() : "";
+    if (!emailLower) return { success: false, message: "Cliente nao informado." };
+
+    var aba = getAbaChatV3_();
+    var dados = aba.getDataRange().getValues();
+    var atualizadas = 0;
+
+    for (var i = 1; i < dados.length; i++) {
+      var linha = dados[i];
+      var clienteEmail = linha[2] ? linha[2].toString().trim().toLowerCase() : "";
+      var remetenteTipo = valorParaTextoV3_(linha[6]);
+      var lidaAdmin = valorParaTextoV3_(linha[9]);
+      if (clienteEmail === emailLower && remetenteTipo === "Cliente" && !lidaAdmin) {
+        aba.getRange(i + 1, 10).setValue("Sim");
+        atualizadas++;
+      }
+    }
+
+    SpreadsheetApp.flush();
+    return { success: true, atualizadas: atualizadas };
+  } catch (error) {
+    return { success: false, message: "Erro ao marcar mensagens: " + error.toString() };
+  }
+}
+
 function atualizarStatusCompraAdminV3(idCompra, statusEntrega, observacao) {
   try {
     var aba = getAbaCompras();

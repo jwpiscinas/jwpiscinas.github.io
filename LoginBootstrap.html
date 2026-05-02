@@ -428,7 +428,7 @@
     JW.renderChatWidget();
     JW.carregarNotificacoes();
     JW.fecharNotificacoes();
-    JW.abrirTab("inicio");
+    JW.abrirTab(JW.isAdmin() ? "relatorios" : "inicio");
   };
 
   JW.isAdmin = function() {
@@ -438,16 +438,18 @@
   JW.carregarMenuDinamico = function() {
     var menu = document.getElementById("dynamicMenu");
     if (!menu) return;
-    var html = ""
-      + '<a href="#" class="nav-item" data-tab="inicio" title="' + (JW.isAdmin() ? "Dashboard" : "Inicio") + '"><i class="fas fa-tachometer-alt"></i><span>' + (JW.isAdmin() ? "Dashboard" : "Inicio") + '</span></a>'
-      + '<a href="#" class="nav-item" data-tab="solicitar-orcamento" title="Orcamentos"><i class="fas fa-file-invoice-dollar"></i><span>Orcamentos</span></a>'
-      + '<a href="#" class="nav-item" data-tab="produtos" title="Produtos"><i class="fas fa-shopping-cart"></i><span>Produtos</span></a>'
-      + '<a href="#" class="nav-item" data-tab="historico" title="Historico"><i class="fas fa-history"></i><span>Historico</span></a>'
-      + '<a href="#" class="nav-item" data-tab="manuais" title="Manuais"><i class="fas fa-book"></i><span>Manuais</span></a>';
     if (JW.isAdmin()) {
-      html += '<a href="#" class="nav-item" data-tab="ordem-servico" title="Pendencias"><i class="fas fa-clipboard-list"></i><span>Pendencias</span></a>'
-        + '<a href="#" class="nav-item" data-tab="relatorios" title="Relatorios"><i class="fas fa-chart-line"></i><span>Relatorios</span></a>'
+      var html = '<a href="#" class="nav-item" data-tab="relatorios" title="Relatorios"><i class="fas fa-chart-line"></i><span>Relatorios</span></a>'
+        + '<a href="#" class="nav-item" data-tab="produtos" title="Produtos"><i class="fas fa-shopping-cart"></i><span>Produtos</span></a>'
+        + '<a href="#" class="nav-item" data-tab="historico" title="Historico"><i class="fas fa-history"></i><span>Historico</span></a>'
+        + '<a href="#" class="nav-item" data-tab="ordem-servico" title="Pendencias"><i class="fas fa-clipboard-list"></i><span>Pendencias</span></a>'
         + '<a href="#" class="nav-item" data-tab="mensagens" title="Mensagens diretas"><i class="fas fa-comments"></i><span>Mensagens diretas</span></a>';
+    } else {
+      var html = '<a href="#" class="nav-item" data-tab="inicio" title="Inicio"><i class="fas fa-home"></i><span>Inicio</span></a>'
+        + '<a href="#" class="nav-item" data-tab="solicitar-orcamento" title="Orcamentos"><i class="fas fa-file-invoice-dollar"></i><span>Orcamentos</span></a>'
+        + '<a href="#" class="nav-item" data-tab="produtos" title="Produtos"><i class="fas fa-shopping-cart"></i><span>Produtos</span></a>'
+        + '<a href="#" class="nav-item" data-tab="historico" title="Historico"><i class="fas fa-history"></i><span>Historico</span></a>'
+        + '<a href="#" class="nav-item" data-tab="manuais" title="Manuais"><i class="fas fa-book"></i><span>Manuais</span></a>';
     }
     menu.innerHTML = html;
 
@@ -461,6 +463,7 @@
   };
 
   JW.prepararSidebarControls = function() {
+    if (!document.body.classList.contains("logged-in")) return;
     var container = document.querySelector(".logo-container");
     if (container && !document.getElementById("sidebarCollapseBtn")) {
       var btn = document.createElement("button");
@@ -486,6 +489,7 @@
   };
 
   JW.toggleSidebarCollapsed = function() {
+    if (window.innerWidth <= 768) return;
     document.body.classList.toggle("sidebar-collapsed");
     var icon = document.querySelector("#sidebarCollapseBtn i");
     if (icon) {
@@ -543,23 +547,8 @@
 
   JW.carregarInicio = async function() {
     if (JW.isAdmin()) {
-      JW.setTitulo("Dashboard");
-      var d = await JW.chamarGoogleScript("getDashboardAdminV3");
-      d = d || {};
-      var receber = d && d.aReceber ? d.aReceber : { total: 0, totalFormatado: "R$ 0,00" };
-      JW.renderMain(
-        '<section class="page-hero" style="margin-bottom:1.25rem;">' +
-          '<h2 style="margin:0 0 .35rem;">Dashboard administrativo</h2>' +
-          '<p class="text-muted" style="margin:0;">Bem-vindo ao painel de gestao, ' + JW.escapeHTML(JW.usuarioLogado.usuario || "admin") + '.</p>' +
-        '</section>' +
-        '<div class="dashboard-stats">' +
-          JW.cardMetrica("Clientes ativos", d.clientesAtivos || 0, "fas fa-users", "JW.abrirDetalheDashboard('clientes')", "metric-click metric-clientes") +
-          JW.cardMetrica("Ordens ativas", d.ordensAtivas || 0, "fas fa-clipboard-list", "JW.abrirDetalheDashboard('ordens')", "metric-click metric-ordens") +
-          JW.cardMetrica("Tecnicos", d.tecnicosAtivos || 0, "fas fa-user-cog", "JW.abrirDetalheDashboard('tecnicos')", "metric-click metric-tecnicos") +
-          JW.cardMetrica("A receber", receber.totalFormatado || JW.formatarMoeda(receber.total || 0), "fas fa-money-bill-wave", "JW.abrirDetalheDashboard('receber')", "metric-click metric-receber") +
-        '</div>' +
-        JW.renderDashboardGraficos(d)
-      );
+      await JW.carregarRelatorios();
+      return;
     } else {
       JW.setTitulo("Inicio");
       JW.renderMain(
@@ -575,6 +564,28 @@
             '<span><i class="fas fa-comments"></i> Contato direto com o admin</span>' +
           '</div>' +
         '</section>'
+      );
+    }
+  };
+
+  JW.carregarResumoAdminLegado = async function() {
+    if (JW.isAdmin()) {
+      JW.setTitulo("Relatorios");
+      var d = await JW.chamarGoogleScript("getDashboardAdminV3");
+      d = d || {};
+      var receber = d && d.aReceber ? d.aReceber : { total: 0, totalFormatado: "R$ 0,00" };
+      JW.renderMain(
+        '<section class="page-hero" style="margin-bottom:1.25rem;">' +
+          '<h2 style="margin:0 0 .35rem;">Relatorios administrativos</h2>' +
+          '<p class="text-muted" style="margin:0;">Visao agrupada da operacao, ' + JW.escapeHTML(JW.usuarioLogado.usuario || "admin") + '.</p>' +
+        '</section>' +
+        '<div class="dashboard-stats">' +
+          JW.cardMetrica("Clientes ativos", d.clientesAtivos || 0, "fas fa-users", "JW.abrirDetalheDashboard('clientes')", "metric-click metric-clientes") +
+          JW.cardMetrica("Ordens ativas", d.ordensAtivas || 0, "fas fa-clipboard-list", "JW.abrirDetalheDashboard('ordens')", "metric-click metric-ordens") +
+          JW.cardMetrica("Tecnicos", d.tecnicosAtivos || 0, "fas fa-user-cog", "JW.abrirDetalheDashboard('tecnicos')", "metric-click metric-tecnicos") +
+          JW.cardMetrica("A receber", receber.totalFormatado || JW.formatarMoeda(receber.total || 0), "fas fa-money-bill-wave", "JW.abrirDetalheDashboard('receber')", "metric-click metric-receber") +
+        '</div>' +
+        JW.renderDashboardGraficos(d)
       );
     }
   };
@@ -1317,6 +1328,10 @@
     var receber = r.aReceber || { totalFormatado: JW.formatarMoeda(0) };
     var html =
       '<div class="report-page" onclick="JW.renderRelatorios(' + JW.attrJs("") + ')">' +
+      '<section class="page-hero reports-hero" onclick="event.stopPropagation()">' +
+        '<h2>Relatorios</h2>' +
+        '<p class="text-muted">Resumo operacional, financeiro e atendimento agrupado em uma so visao.</p>' +
+      '</section>' +
       '<div class="report-action-grid" onclick="event.stopPropagation()">' +
         JW.cardRelatorio("Clientes", r.totalClientes || 0, "clientes", detalhe, "report-clientes") +
         JW.cardRelatorio("Orcamentos pendentes", r.orcamentosPendentes || 0, "orcamentos", detalhe, "report-orcamentos") +
@@ -1487,6 +1502,9 @@
     JW.mostrarLoading("Carregando conversa...");
     try {
       var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", clienteEmail);
+      JW.chamarGoogleScript("marcarMensagensAdminLidasV3", clienteEmail).then(function() {
+        JW.carregarBadgeMensagensAdmin();
+      }).catch(function() {});
       JW.esconderLoading();
       JW.abrirModalSistema(
         '<i class="fas fa-comments"></i> Conversa',
@@ -1525,6 +1543,7 @@
       if (campo) campo.value = "";
       if (hist) hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
       JW.toast("Resposta enviada.", "success");
+      JW.carregarBadgeMensagensAdmin();
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao responder: " + (error.message || error), "error");
@@ -1603,6 +1622,7 @@
       JW.notificacoes = resultado && resultado.itens ? resultado.itens : [];
       JW.renderNotificacoes();
       JW.atualizarBadgeChat();
+      if (JW.isAdmin()) JW.carregarBadgeMensagensAdmin();
     } catch (error) {
       JW.notificacoes = [];
       JW.renderNotificacoes();
@@ -1620,6 +1640,25 @@
     }
     badge.textContent = total;
     badge.classList.toggle("d-none", total === 0);
+    var widget = document.getElementById("supportChatWidget");
+    if (widget) widget.classList.toggle("has-unread", total > 0);
+  };
+
+  JW.carregarBadgeMensagensAdmin = async function() {
+    if (!JW.isAdmin()) return;
+    try {
+      var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
+      var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
+      var total = 0;
+      for (var i = 0; i < conversas.length; i++) total += parseInt(conversas[i].naoLidasAdmin, 10) || 0;
+      var badge = document.getElementById("supportChatBadge");
+      if (badge) {
+        badge.textContent = total > 9 ? "9+" : total;
+        badge.classList.toggle("d-none", total === 0);
+      }
+      var widget = document.getElementById("supportChatWidget");
+      if (widget) widget.classList.toggle("has-unread", total > 0);
+    } catch (error) {}
   };
 
   JW.renderNotificacoes = function() {
@@ -1794,7 +1833,7 @@
 
   JW.renderChatWidget = function() {
     var existente = document.getElementById("supportChatWidget");
-    if (!JW.usuarioLogado || JW.isAdmin()) {
+    if (!JW.usuarioLogado) {
       if (existente && existente.parentNode) existente.parentNode.removeChild(existente);
       return;
     }
@@ -1802,14 +1841,82 @@
     var widget = document.createElement("div");
     widget.id = "supportChatWidget";
     widget.className = "support-chat-widget";
+    var admin = JW.isAdmin();
     widget.innerHTML =
-      '<button class="support-chat-button" onclick="JW.abrirChatCliente()" title="Falar com a equipe JW Piscinas"><i class="fas fa-comments"></i><span id="supportChatBadge" class="support-chat-badge d-none">1</span></button>' +
+      '<button class="support-chat-button" id="supportChatButton" onclick="' + (admin ? 'JW.abrirChatAdminFlutuante()' : 'JW.abrirChatCliente()') + '" title="' + (admin ? 'Mensagens de clientes' : 'Falar com a equipe JW Piscinas') + '"><i class="fas fa-comments"></i><span id="supportChatBadge" class="support-chat-badge d-none">1</span></button>' +
       '<div class="support-chat-window" id="supportChatWindow">' +
-        '<div class="support-chat-header"><strong>Suporte JW Piscinas</strong><button onclick="JW.fecharChatCliente()" title="Fechar">&times;</button></div>' +
-        '<div class="chat-history" id="chatHistoryCliente"><p class="text-muted">Abra para carregar a conversa.</p></div>' +
-        '<div class="support-chat-compose"><textarea id="chatMensagemCliente" class="form-input" rows="3" placeholder="Digite sua mensagem"></textarea><button class="btn btn-primary" onclick="JW.enviarMensagemChatCliente()"><i class="fas fa-paper-plane"></i></button></div>' +
+        '<div class="support-chat-header" id="supportChatDragHandle"><strong>' + (admin ? 'Mensagens diretas' : 'Suporte JW Piscinas') + '</strong><button onclick="JW.fecharChatCliente()" title="Fechar">&times;</button></div>' +
+        (admin
+          ? '<div class="chat-history" id="chatHistoryAdminFloat"><p class="text-muted">Abra para carregar as conversas.</p></div>'
+          : '<div class="chat-history" id="chatHistoryCliente"><p class="text-muted">Abra para carregar a conversa.</p></div><div class="support-chat-compose"><textarea id="chatMensagemCliente" class="form-input" rows="3" placeholder="Digite sua mensagem"></textarea><button class="btn btn-primary" onclick="JW.enviarMensagemChatCliente()"><i class="fas fa-paper-plane"></i></button></div>') +
       '</div>';
     document.body.appendChild(widget);
+    JW.habilitarArrasteChat(widget);
+    if (admin) JW.carregarBadgeMensagensAdmin();
+    else JW.atualizarBadgeChat();
+  };
+
+  JW.habilitarArrasteChat = function(widget) {
+    var handle = widget.querySelector("#supportChatButton");
+    if (!handle || handle.dataset.dragBound) return;
+    handle.dataset.dragBound = "1";
+    var arrastando = false;
+    var iniciou = false;
+    var offsetX = 0;
+    var offsetY = 0;
+    var startX = 0;
+    var startY = 0;
+
+    handle.addEventListener("pointerdown", function(e) {
+      if (e.button !== undefined && e.button !== 0) return;
+      arrastando = true;
+      iniciou = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      var rect = widget.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      handle.setPointerCapture && handle.setPointerCapture(e.pointerId);
+    });
+
+    handle.addEventListener("pointermove", function(e) {
+      if (!arrastando) return;
+      if (Math.abs(e.clientX - startX) + Math.abs(e.clientY - startY) > 8) iniciou = true;
+      if (!iniciou) return;
+      var x = Math.max(8, Math.min(window.innerWidth - widget.offsetWidth - 8, e.clientX - offsetX));
+      var y = Math.max(8, Math.min(window.innerHeight - widget.offsetHeight - 8, e.clientY - offsetY));
+      widget.style.left = x + "px";
+      widget.style.top = y + "px";
+      widget.style.right = "auto";
+      widget.style.bottom = "auto";
+      e.preventDefault();
+    });
+
+    handle.addEventListener("pointerup", function(e) {
+      if (iniciou) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      arrastando = false;
+      window.setTimeout(function() { iniciou = false; }, 0);
+    });
+  };
+
+  JW.abrirChatAdminFlutuante = async function() {
+    JW.renderChatWidget();
+    var widget = document.getElementById("supportChatWidget");
+    var hist = document.getElementById("chatHistoryAdminFloat");
+    if (widget) widget.classList.add("open");
+    if (!hist) return;
+    hist.innerHTML = '<p class="text-muted">Carregando conversas...</p>';
+    try {
+      var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
+      var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
+      hist.innerHTML = JW.renderConversasAdmin(conversas);
+      JW.carregarBadgeMensagensAdmin();
+    } catch (error) {
+      hist.innerHTML = '<p class="text-muted">Nao foi possivel carregar as conversas.</p>';
+    }
   };
 
   JW.abrirChatCliente = async function() {
@@ -1875,6 +1982,7 @@
     document.body.classList.remove("logged-in");
     document.body.classList.remove("admin-mode");
     document.body.classList.remove("sidebar-collapsed");
+    document.body.classList.remove("sidebar-open");
     var chatWidget = document.getElementById("supportChatWidget");
     if (chatWidget && chatWidget.parentNode) chatWidget.parentNode.removeChild(chatWidget);
     var loginScreen = document.getElementById("loginScreen");
