@@ -3,41 +3,61 @@ permalink: /
 layout: null
 title: JW Piscinas
 ---
-<style>
-  html,
-  body {
-    background: #f6f8fb;
-    height: 100%;
-    margin: 0;
-    overflow: hidden;
-  }
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0077B6">
+  <title>JW Piscinas</title>
+  <style>
+    html,
+    body {
+      background: #f6f8fb;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      padding: 0;
+      width: 100%;
+    }
 
-  .jw-app-frame {
-    border: 0;
-    display: block;
-    height: 100vh;
-    inset: 0;
-    position: fixed;
-    width: 100vw;
-  }
+    body {
+      min-height: 100dvh;
+      position: fixed;
+      inset: 0;
+    }
 
-  .jw-noscript {
-    color: #172033;
-    font-family: Arial, sans-serif;
-    margin: 32px;
-  }
-</style>
+    .jw-app-frame {
+      border: 0;
+      display: block;
+      height: 100dvh;
+      left: 0;
+      min-height: 100svh;
+      position: fixed;
+      top: 0;
+      width: 100vw;
+    }
 
-<iframe
-  class="jw-app-frame"
-  src="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec"
-  title="JW Piscinas"
-  allow="clipboard-read; clipboard-write; fullscreen"
-></iframe>
+    .jw-noscript {
+      color: #172033;
+      font-family: Arial, sans-serif;
+      margin: 32px;
+    }
+  </style>
+</head>
+<body>
+  <iframe
+    class="jw-app-frame"
+    src="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec"
+    title="JW Piscinas"
+    allow="clipboard-read; clipboard-write; fullscreen"
+  ></iframe>
 
-<noscript>
-  <div class="jw-noscript">
-    <p>Ative o JavaScript para abrir o sistema.</p>
-    <p><a href="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec">Abrir sistema</a></p>
-  </div>
-</noscript>
+  <noscript>
+    <div class="jw-noscript">
+      <p>Ative o JavaScript para abrir o sistema.</p>
+      <p><a href="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec">Abrir sistema</a></p>
+    </div>
+  </noscript>
+</body>
+</html>

@@ -38,7 +38,16 @@
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; width: 100%; }
-    body { font-family: var(--font-family); background: var(--bg); color: var(--text); line-height: 1.5; font-size: 16px; }
+    body {
+      font-family: var(--font-family);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      font-size: 16px;
+      min-height: 100dvh;
+      overflow-x: hidden;
+      -webkit-text-size-adjust: 100%;
+    }
 
     .d-none { display: none !important; }
     .d-flex { display: flex !important; }
@@ -226,6 +235,8 @@
       margin-left: 280px;
       flex: 1;
       min-height: 100vh;
+      min-height: 100dvh;
+      min-width: 0;
       display: flex;
       flex-direction: column;
     }
@@ -235,24 +246,54 @@
         transform: translateX(-100%);
         transition: transform 0.3s ease;
         display: flex;
+        width: min(86vw, 280px);
+        max-width: 320px;
+        z-index: 1200;
+        will-change: transform;
       }
       body.logged-in.sidebar-open .sidebar {
         transform: translateX(0);
       }
+      body.logged-in.sidebar-open {
+        overflow: hidden;
+      }
+      body.logged-in.sidebar-open::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.42);
+        z-index: 1190;
+      }
       body.logged-in .main-content {
         margin-left: 0;
+        width: 100%;
       }
       .mobile-menu-toggle {
         display: flex !important;
+      }
+      body.sidebar-collapsed .sidebar {
+        width: min(86vw, 280px);
+      }
+      body.sidebar-collapsed.logged-in .main-content {
+        margin-left: 0;
+      }
+      body.sidebar-collapsed .logo-text,
+      body.sidebar-collapsed .nav-item span,
+      body.sidebar-collapsed .user-details {
+        display: block;
+      }
+      body.sidebar-collapsed .nav-item {
+        justify-content: flex-start;
+        padding: var(--md);
       }
     }
 
     .mobile-menu-toggle {
       display: none;
       position: fixed;
-      top: 1rem;
-      left: 1rem;
-      z-index: 1100;
+      top: max(1rem, env(safe-area-inset-top));
+      left: max(1rem, env(safe-area-inset-left));
+      z-index: 1300;
       background: var(--primary);
       border: none;
       color: white;
@@ -280,6 +321,7 @@
       flex: 1;
       padding: var(--xl);
       overflow-y: auto;
+      min-width: 0;
     }
 
     .sidebar-logo {
@@ -2042,6 +2084,40 @@
     }
 
     @media (max-width: 768px) {
+      html,
+      body {
+        min-height: 100dvh;
+        overflow-x: hidden;
+      }
+      .app-container,
+      .main-content {
+        min-height: 100dvh;
+        min-width: 0;
+        width: 100%;
+      }
+      body.logged-in .sidebar,
+      body.sidebar-collapsed .sidebar {
+        width: min(86vw, 280px);
+        max-width: 320px;
+      }
+      body.sidebar-collapsed.logged-in .main-content {
+        margin-left: 0;
+      }
+      body.sidebar-collapsed .logo-text,
+      body.sidebar-collapsed .nav-item span,
+      body.sidebar-collapsed .user-details {
+        display: block;
+      }
+      body.sidebar-collapsed .nav-item {
+        justify-content: flex-start;
+        padding: var(--md);
+      }
+      body.sidebar-collapsed .sidebar-logo,
+      body.sidebar-collapsed .nav-menu,
+      body.sidebar-collapsed .user-profile-sidebar {
+        padding-left: var(--md);
+        padding-right: var(--md);
+      }
       .content-header {
         padding: var(--md);
         padding-left: 70px;

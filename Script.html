@@ -101,13 +101,24 @@ var JW = JW || {};
         }
     };
 
+    JW.atualizarEstadoMenuMobile = function(aberto) {
+        var toggle = document.getElementById('mobileMenuToggle');
+        document.body.classList.toggle('sidebar-open', !!aberto);
+        if (toggle) {
+            toggle.setAttribute('aria-expanded', aberto ? 'true' : 'false');
+        }
+    };
+
     JW.toggleMobileMenu = function() {
-        document.body.classList.toggle('sidebar-open');
+        if (window.innerWidth <= 768) {
+            document.body.classList.remove('sidebar-collapsed');
+        }
+        JW.atualizarEstadoMenuMobile(!document.body.classList.contains('sidebar-open'));
     };
 
     JW.fecharSidebarMobile = function() {
         if (window.innerWidth <= 768) {
-            document.body.classList.remove('sidebar-open');
+            JW.atualizarEstadoMenuMobile(false);
         }
     };
 
@@ -2742,6 +2753,26 @@ JW.renderizarHistoricoCompleto = function(filtro) {
             var dropdown = document.getElementById('notificationsDropdown');
             var icon = document.querySelector('.notifications-icon');
             if (dropdown && icon && !icon.contains(e.target) && !dropdown.contains(e.target)) dropdown.classList.remove('show');
+
+            if (window.innerWidth <= 768 && document.body.classList.contains('sidebar-open')) {
+                var sidebar = document.getElementById('sidebar');
+                var menuToggle = document.getElementById('mobileMenuToggle');
+                if (sidebar && !sidebar.contains(e.target) && menuToggle && !menuToggle.contains(e.target)) {
+                    JW.fecharSidebarMobile();
+                }
+            }
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') JW.fecharSidebarMobile();
+        });
+
+        window.addEventListener('resize', function() {
+            if (window.innerWidth > 768) {
+                JW.atualizarEstadoMenuMobile(false);
+            } else {
+                document.body.classList.remove('sidebar-collapsed');
+            }
         });
         
         JW.mostrarLoginForm();
