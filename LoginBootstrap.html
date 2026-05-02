@@ -442,8 +442,7 @@
       var html = '<a href="#" class="nav-item" data-tab="relatorios" title="Relatorios"><i class="fas fa-chart-line"></i><span>Relatorios</span></a>'
         + '<a href="#" class="nav-item" data-tab="produtos" title="Produtos"><i class="fas fa-shopping-cart"></i><span>Produtos</span></a>'
         + '<a href="#" class="nav-item" data-tab="historico" title="Historico"><i class="fas fa-history"></i><span>Historico</span></a>'
-        + '<a href="#" class="nav-item" data-tab="ordem-servico" title="Pendencias"><i class="fas fa-clipboard-list"></i><span>Pendencias</span></a>'
-        + '<a href="#" class="nav-item" data-tab="mensagens" title="Mensagens diretas"><i class="fas fa-comments"></i><span>Mensagens diretas</span></a>';
+        + '<a href="#" class="nav-item" data-tab="ordem-servico" title="Pendencias"><i class="fas fa-clipboard-list"></i><span>Pendencias</span></a>';
     } else {
       var html = '<a href="#" class="nav-item" data-tab="inicio" title="Inicio"><i class="fas fa-home"></i><span>Inicio</span></a>'
         + '<a href="#" class="nav-item" data-tab="solicitar-orcamento" title="Orcamentos"><i class="fas fa-file-invoice-dollar"></i><span>Orcamentos</span></a>'
@@ -1699,6 +1698,12 @@
   JW.fecharNotificacoes = function() {
     var dropdown = document.getElementById("notificationsDropdown");
     if (dropdown) dropdown.classList.remove("show");
+  };
+
+  JW.abrirEnvioNotificacaoAdmin = function() {
+    if (!JW.isAdmin()) return;
+    JW.fecharNotificacoes();
+    JW.carregarMensagensDiretas();
   };
 
   JW.textoAcaoNotificacao = function(notif) {

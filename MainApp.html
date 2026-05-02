@@ -13,9 +13,12 @@
               <span class="notifications-count d-none" id="notificationsCount">0</span>
             </button>
             <div class="notifications-dropdown" id="notificationsDropdown">
-              <div class="notifications-header" style="padding: var(--md); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+              <div class="notifications-header" style="padding: var(--md); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: var(--sm); flex-wrap: wrap;">
                 <span><i class="fas fa-bell"></i> Notificações</span>
-                <button class="btn btn-sm btn-secondary" onclick="JW.marcarTodasLidas()">Marcar todas como lidas</button>
+                <div class="notifications-header-actions">
+                  <button class="btn btn-sm btn-primary admin-only" onclick="JW.abrirEnvioNotificacaoAdmin()"><i class="fas fa-paper-plane"></i> Enviar mensagem</button>
+                  <button class="btn btn-sm btn-secondary" onclick="JW.marcarTodasLidas()">Marcar todas como lidas</button>
+                </div>
               </div>
               <div class="notifications-list" id="notificationsList">
                 <div class="text-center" style="padding: 2rem; color: var(--text-muted);">

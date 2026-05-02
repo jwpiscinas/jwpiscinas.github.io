@@ -1998,6 +1998,23 @@
       background: var(--bg);
     }
 
+    .admin-only {
+      display: none !important;
+    }
+
+    body.admin-mode .admin-only {
+      display: inline-flex !important;
+    }
+
+    .notifications-header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: var(--sm);
+      margin-left: auto;
+    }
+
     .support-chat-widget {
       position: fixed;
       right: 22px;
@@ -2060,7 +2077,44 @@
     }
 
     .support-chat-widget.open .support-chat-window {
-      display: block;
+      display: flex;
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      max-height: none;
+      border-radius: 0;
+      flex-direction: column;
+      pointer-events: auto;
+    }
+
+    .support-chat-widget.open {
+      inset: 0 !important;
+      right: auto !important;
+      bottom: auto !important;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      z-index: 10000;
+      pointer-events: none;
+      touch-action: auto;
+    }
+
+    .support-chat-widget.open .support-chat-button {
+      display: none;
+    }
+
+    .support-chat-widget.open .chat-history {
+      flex: 1;
+      max-height: none;
+      margin: 0;
+      border-radius: 0;
+    }
+
+    .support-chat-widget.open .support-chat-compose {
+      flex-shrink: 0;
+      background: white;
     }
 
     .support-chat-header {
