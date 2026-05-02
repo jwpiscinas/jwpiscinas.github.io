@@ -1,13 +1,17 @@
-# jw.piscinas.com.br
+# jwpiscinas.github.io
 
-Projeto preparado para publicacao no dominio personalizado `jw.piscinas.com.br`.
+Projeto preparado para publicacao no GitHub Pages da organizacao `jwpiscinas`.
 
 ## GitHub Pages
 
-O arquivo `CNAME` na raiz aponta o GitHub Pages para:
+Este repositorio usa o formato especial de GitHub Pages:
 
 ```txt
-jw.piscinas.com.br
+jwpiscinas/jwpiscinas.github.io
 ```
 
-Depois que o repositorio existir no GitHub, configure o Pages em `Settings > Pages` e aponte o DNS do subdominio `jw` para `Cawanoliveira.github.io`.
+Quando publicado, o endereco fica:
+
+```txt
+https://jwpiscinas.github.io/
+```
