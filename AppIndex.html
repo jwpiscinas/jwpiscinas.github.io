@@ -1,0 +1,47 @@
+<!-- Apps Script entry template; GitHub Pages uses lowercase index.html. -->
+<!DOCTYPE html>
+<html>
+<head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>JW Piscinas - Sistema</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <?!= include('Style'); ?>
+</head>
+<body>
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-card">
+            <div class="loading-spinner-modern"></div>
+            <div id="loadingText" class="loading-text-modern">Carregando JW Piscinas...</div>
+            <div class="loading-subtext">Aguarde um momento</div>
+        </div>
+    </div>
+
+    <?!= include('Header'); ?>
+    <?!= include('LoginScreen'); ?>
+    <?!= include('MainApp'); ?>
+    <?!= include('Modals'); ?>
+    <?!= include('LogoData'); ?>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+    <?!= include('LoginBootstrap'); ?>
+    <script>
+      window.__jwBeforeScriptInclude = true;
+      window.addEventListener('error', function(event) {
+        window.__jwLoadError = event.message || 'Erro desconhecido';
+        var el = document.getElementById('loginMessage');
+        if (!el) return;
+        el.textContent = 'Erro ao carregar o sistema: ' + (event.message || 'verifique a implantação mais recente.');
+        el.className = 'alert alert-error';
+        el.style.display = 'block';
+      });
+    </script>
+    <script>
+      window.__jwAfterScriptInclude = true;
+      window.__jwRuntimeMode = "bootstrap";
+      window.__jwScriptAssetLoaded = false;
+      window.__jwScriptSkipped = true;
+    </script>
+</body>
+</html>

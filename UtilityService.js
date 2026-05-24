@@ -979,6 +979,13 @@ function getHistoricoCompletoUsuarioV3(email) {
   });
 
   historico = historico.concat(getHistoricoServicosUsuarioV3_(emailLower, ids).map(normalizarItemHistoricoV3_));
+  if (typeof getHistoricoFinanceiroUsuarioV3_ === "function") {
+    try {
+      historico = historico.concat(getHistoricoFinanceiroUsuarioV3_(emailLower, ids).map(normalizarItemHistoricoV3_));
+    } catch (errorFinanceiro) {
+      erros.push("historicoFinanceiro: " + errorFinanceiro.toString());
+    }
+  }
   historico.sort(function(a, b) {
     return normalizarDataHistorico_(b.dataRegistro) - normalizarDataHistorico_(a.dataRegistro);
   });
@@ -1234,6 +1241,9 @@ function calcularAReceberV3_() {
   });
   var pagamentos = getPagamentosPendentesV3_();
   var servicosSemPagamento = getServicosNaoPagosV3_();
+  var cobrancasPendentes = typeof getCobrancasPendentesFinanceiroV3_ === "function"
+    ? getCobrancasPendentesFinanceiroV3_()
+    : [];
 
   var totalCompras = compras.reduce(function(total, compra) {
     return total + (parseFloat(compra.valorTotal) || 0);
@@ -1247,14 +1257,20 @@ function calcularAReceberV3_() {
     return total + (parseFloat(servico.valor) || 0);
   }, 0);
 
+  var totalCobrancasPendentes = cobrancasPendentes.reduce(function(total, cobranca) {
+    return total + (parseFloat(cobranca.valorTotal) || 0);
+  }, 0);
+
   return {
-    total: totalCompras + totalPagamentos + totalServicosSemPagamento,
-    totalFormatado: formatarValorV3_(totalCompras + totalPagamentos + totalServicosSemPagamento),
+    total: totalCompras + totalPagamentos + totalServicosSemPagamento + totalCobrancasPendentes,
+    totalFormatado: formatarValorV3_(totalCompras + totalPagamentos + totalServicosSemPagamento + totalCobrancasPendentes),
     comprasNaoPagas: compras,
     pagamentosPendentes: pagamentos,
     servicosNaoPagos: servicosSemPagamento,
+    cobrancasPendentes: cobrancasPendentes,
     totalComprasNaoPagas: totalCompras,
-    totalServicosNaoPagos: totalPagamentos + totalServicosSemPagamento
+    totalServicosNaoPagos: totalPagamentos + totalServicosSemPagamento,
+    totalCobrancasPendentes: totalCobrancasPendentes
   };
 }
 
@@ -1262,6 +1278,7 @@ function getCentralAdminV3() {
   var erros = [];
   var orcamentos = [];
   var compras = [];
+  var cobrancas = [];
 
   try {
     orcamentos = getTodosOrcamentosV3_().filter(function(orcamento) {
@@ -1279,10 +1296,19 @@ function getCentralAdminV3() {
     erros.push("compras: " + eComp.toString());
   }
 
+  try {
+    if (typeof getCobrancasPendentesFinanceiroV3_ === "function") {
+      cobrancas = getCobrancasPendentesFinanceiroV3_();
+    }
+  } catch (eCobr) {
+    erros.push("cobrancas: " + eCobr.toString());
+  }
+
   return {
     success: true,
     orcamentosPendentes: orcamentos,
     comprasPendentes: compras,
+    cobrancasPendentes: cobrancas,
     ordensAtivas: [],
     erros: erros
   };
@@ -1322,6 +1348,8 @@ function getDashboardAdminV3() {
     agenda = [];
   }
 
+  var cobrancasPendentes = central.cobrancasPendentes || [];
+
   var ordensAtivas = ordens.filter(function(ordem) {
     var status = normalizarTextoV3_(ordem.status);
     return status === "agendado" || status === "em andamento" || status === "pendente";
@@ -1331,7 +1359,7 @@ function getDashboardAdminV3() {
     success: true,
     clientesAtivos: cadastros.totalClientes,
     telefonesAutorizados: cadastros.totalTelefones,
-    ordensAtivas: ordensAtivas.length + central.orcamentosPendentes.length + central.comprasPendentes.length,
+    ordensAtivas: ordensAtivas.length + central.orcamentosPendentes.length + central.comprasPendentes.length + cobrancasPendentes.length,
     tecnicosAtivos: tecnicos.length,
     aReceber: aReceber,
     ordensRecentes: ordens.slice(0, 5),
@@ -1358,6 +1386,9 @@ function getRelatoriosAdminV3() {
     return !statusCanceladoV3_(compra.statusEntrega) && normalizarTextoV3_(compra.statusEntrega) !== "entregue";
   });
   var aReceber = calcularAReceberV3_();
+  var cobrancasPendentes = typeof getCobrancasPendentesFinanceiroV3_ === "function"
+    ? getCobrancasPendentesFinanceiroV3_()
+    : [];
   var faturamentoCompras = compras.reduce(function(total, compra) {
     return total + (parseFloat(compra.valorTotal) || 0);
   }, 0);
@@ -1370,6 +1401,7 @@ function getRelatoriosAdminV3() {
     orcamentosPendentes: orcamentosPendentes.length,
     totalCompras: compras.length,
     comprasPendentes: comprasPendentes.length,
+    totalCobrancasPendentes: cobrancasPendentes.length,
     faturamentoCompras: faturamentoCompras,
     aReceber: aReceber,
     clientes: cadastros.clientes,
@@ -1379,6 +1411,7 @@ function getRelatoriosAdminV3() {
     orcamentosPendentesLista: orcamentosPendentes,
     compras: compras,
     comprasPendentesLista: comprasPendentes,
+    cobrancasPendentesLista: cobrancasPendentes,
     vendas: compras
   };
 }

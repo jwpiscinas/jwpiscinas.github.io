@@ -1,0 +1,412 @@
+<? var c = dados.cobranca; var r = dados.resumo; ?>
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        color: #16324f;
+        margin: 0;
+        background: #f3f8fc;
+      }
+      .page {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 28px;
+      }
+      .sheet {
+        background: #ffffff;
+        border: 1px solid #d8e6f2;
+        border-radius: 18px;
+        overflow: hidden;
+      }
+      .hero {
+        background: linear-gradient(135deg, #0f4c81 0%, #0aa7d7 100%);
+        color: #ffffff;
+        padding: 24px 28px;
+      }
+      .hero-row {
+        display: table;
+        width: 100%;
+      }
+      .hero-brand,
+      .hero-side {
+        display: table-cell;
+        vertical-align: middle;
+      }
+      .hero-side {
+        text-align: right;
+      }
+      .brand-wrap {
+        display: inline-block;
+      }
+      .logo {
+        width: 64px;
+        height: 64px;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.16);
+        display: inline-block;
+        vertical-align: middle;
+        text-align: center;
+        line-height: 64px;
+        margin-right: 14px;
+      }
+      .logo img {
+        width: 52px;
+        height: 52px;
+        vertical-align: middle;
+      }
+      .brand-copy {
+        display: inline-block;
+        vertical-align: middle;
+      }
+      .eyebrow {
+        font-size: 11px;
+        letter-spacing: 1.3px;
+        text-transform: uppercase;
+        opacity: 0.85;
+      }
+      .brand-title {
+        font-size: 28px;
+        font-weight: bold;
+        margin-top: 4px;
+      }
+      .brand-subtitle {
+        margin-top: 6px;
+        font-size: 13px;
+        opacity: 0.92;
+      }
+      .hero-card {
+        display: inline-block;
+        min-width: 180px;
+        background: rgba(255,255,255,0.14);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 14px;
+        padding: 12px 14px;
+        text-align: left;
+      }
+      .hero-card-label {
+        font-size: 11px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        opacity: 0.8;
+      }
+      .hero-card-value {
+        font-size: 24px;
+        font-weight: bold;
+        margin-top: 8px;
+      }
+      .content {
+        padding: 26px 28px 22px;
+      }
+      .grid {
+        display: table;
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 12px;
+        margin: -12px;
+      }
+      .cell {
+        display: table-cell;
+        width: 50%;
+        vertical-align: top;
+      }
+      .card {
+        background: #f8fbfe;
+        border: 1px solid #dbe8f2;
+        border-radius: 16px;
+        padding: 16px 18px;
+        box-sizing: border-box;
+      }
+      .card h3 {
+        margin: 0 0 12px;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #0f4c81;
+      }
+      .meta-row {
+        margin-bottom: 10px;
+      }
+      .meta-label {
+        font-size: 11px;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: #6b87a0;
+        margin-bottom: 4px;
+      }
+      .meta-value {
+        font-size: 16px;
+        font-weight: bold;
+        color: #18344f;
+      }
+      .list-card {
+        margin-top: 16px;
+      }
+      .list-title {
+        font-size: 16px;
+        font-weight: bold;
+        color: #123a5d;
+        margin: 0 0 12px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th {
+        text-align: left;
+        font-size: 11px;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: #68839b;
+        padding: 0 0 8px;
+        border-bottom: 1px solid #d8e5f0;
+      }
+      td {
+        padding: 11px 0;
+        border-bottom: 1px solid #ebf2f8;
+        font-size: 13px;
+        color: #26445f;
+      }
+      .number {
+        text-align: right;
+        white-space: nowrap;
+      }
+      .section-total {
+        margin-top: 10px;
+        text-align: right;
+        font-size: 13px;
+        font-weight: bold;
+        color: #0f4c81;
+      }
+      .summary-band {
+        margin-top: 18px;
+        background: #0f4c81;
+        color: #ffffff;
+        border-radius: 16px;
+        padding: 16px 18px;
+      }
+      .summary-band table td {
+        border: 0;
+        color: #ffffff;
+        padding: 4px 0;
+      }
+      .summary-band .number {
+        font-size: 20px;
+        font-weight: bold;
+      }
+      .phrase {
+        margin-top: 18px;
+        background: #eef8fd;
+        border: 1px solid #cde8f4;
+        border-radius: 16px;
+        padding: 16px 18px;
+        color: #123a5d;
+      }
+      .phrase-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #0a7fb4;
+        font-weight: bold;
+        margin-bottom: 8px;
+      }
+      .footer {
+        margin-top: 18px;
+        padding: 18px 0 0;
+        border-top: 1px solid #dbe7f0;
+        color: #567086;
+        font-size: 12px;
+      }
+      .muted {
+        color: #6e869c;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="sheet">
+        <div class="hero">
+          <div class="hero-row">
+            <div class="hero-brand">
+              <div class="brand-wrap">
+                <div class="logo">
+                  <? if (dados.logoDataUri) { ?>
+                    <img src="<?= dados.logoDataUri ?>" alt="JW Piscinas">
+                  <? } else { ?>
+                    JW
+                  <? } ?>
+                </div>
+                <div class="brand-copy">
+                  <div class="eyebrow">Cobranca de manutencao</div>
+                  <div class="brand-title"><?= dados.empresaNome ?></div>
+                  <div class="brand-subtitle">Competencia <?= dados.tituloCompetencia ?></div>
+                </div>
+              </div>
+            </div>
+            <div class="hero-side">
+              <div class="hero-card">
+                <div class="hero-card-label">Valor total</div>
+                <div class="hero-card-value"><?= c.valorTotal ?></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="card">
+                <h3>Cliente</h3>
+                <div class="meta-row">
+                  <div class="meta-label">Nome</div>
+                  <div class="meta-value"><?= c.clienteNome ?></div>
+                </div>
+                <? if (c.telefone) { ?>
+                  <div class="meta-row">
+                    <div class="meta-label">Telefone</div>
+                    <div class="muted"><?= c.telefone ?></div>
+                  </div>
+                <? } ?>
+                <? if (c.clienteEmail) { ?>
+                  <div class="meta-row">
+                    <div class="meta-label">E-mail</div>
+                    <div class="muted"><?= c.clienteEmail ?></div>
+                  </div>
+                <? } ?>
+              </div>
+            </div>
+            <div class="cell">
+              <div class="card">
+                <h3>Cobranca</h3>
+                <div class="meta-row">
+                  <div class="meta-label">Identificador</div>
+                  <div class="meta-value"><?= c.id ?></div>
+                </div>
+                <div class="meta-row">
+                  <div class="meta-label">Vencimento</div>
+                  <div class="meta-value"><?= c.vencimento ?></div>
+                </div>
+                <? if (c.referencia) { ?>
+                  <div class="meta-row">
+                    <div class="meta-label">Referencia</div>
+                    <div class="muted"><?= c.referencia ?></div>
+                  </div>
+                <? } ?>
+              </div>
+            </div>
+          </div>
+
+          <? if (r.mensalidades.length) { ?>
+            <div class="card list-card">
+              <div class="list-title">Mensalidade</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Descricao</th>
+                    <th class="number">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <? for (var i = 0; i < r.mensalidades.length; i++) { var itemMensal = r.mensalidades[i]; ?>
+                    <tr>
+                      <td><?= itemMensal.descricao ?></td>
+                      <td class="number"><?= itemMensal.valorTotalFormatado ?></td>
+                    </tr>
+                  <? } ?>
+                </tbody>
+              </table>
+              <div class="section-total">Total mensalidade: <?= r.totalMensalidade ?></div>
+            </div>
+          <? } ?>
+
+          <? if (r.servicos.length) { ?>
+            <div class="card list-card">
+              <div class="list-title">Servicos realizados</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Servico</th>
+                    <th class="number">Qtd.</th>
+                    <th class="number">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <? for (var j = 0; j < r.servicos.length; j++) { var itemServico = r.servicos[j]; ?>
+                    <tr>
+                      <td><?= itemServico.descricao ?></td>
+                      <td class="number"><?= itemServico.quantidade || 1 ?></td>
+                      <td class="number"><?= itemServico.valorTotalFormatado ?></td>
+                    </tr>
+                  <? } ?>
+                </tbody>
+              </table>
+              <div class="section-total">Total servicos: <?= r.totalServicos ?></div>
+            </div>
+          <? } ?>
+
+          <? if (r.produtos.length) { ?>
+            <div class="card list-card">
+              <div class="list-title">Produtos consumidos</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Produto</th>
+                    <th class="number">Qtd.</th>
+                    <th class="number">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <? for (var k = 0; k < r.produtos.length; k++) { var itemProduto = r.produtos[k]; ?>
+                    <tr>
+                      <td><?= itemProduto.descricao ?></td>
+                      <td class="number"><?= itemProduto.quantidade || 1 ?></td>
+                      <td class="number"><?= itemProduto.valorTotalFormatado ?></td>
+                    </tr>
+                  <? } ?>
+                </tbody>
+              </table>
+              <div class="section-total">Total produtos: <?= r.totalProdutos ?></div>
+            </div>
+          <? } ?>
+
+          <div class="summary-band">
+            <table>
+              <tr>
+                <td>Valor final da cobranca</td>
+                <td class="number"><?= c.valorTotal ?></td>
+              </tr>
+              <tr>
+                <td>Pix</td>
+                <td class="number"><?= dados.pixChave ?></td>
+              </tr>
+              <tr>
+                <td>Favorecido</td>
+                <td class="number"><?= dados.pixFavorecido ?></td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="phrase">
+            <div class="phrase-title">Frase do mes</div>
+            <div><?= dados.fraseMes ?></div>
+          </div>
+
+          <? if (c.observacoes) { ?>
+            <div class="card list-card">
+              <div class="list-title">Observacoes</div>
+              <div class="muted"><?= c.observacoes ?></div>
+            </div>
+          <? } ?>
+
+          <div class="footer">
+            <div>Pagamento via Pix</div>
+            <div>Banco: <?= dados.pixBanco ?></div>
+            <div>Contato: <?= dados.empresaTelefone ?> | <?= dados.empresaEmail ?></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

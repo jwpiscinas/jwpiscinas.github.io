@@ -9,7 +9,7 @@ function doGet(e) {
 
     // Retornar o HTML processado CORRETAMENTE
     return HtmlService
-      .createTemplateFromFile('Index')
+      .createTemplateFromFile('AppIndex')
       .evaluate()
       .setTitle('JW Piscinas - Sistema Mobile')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
@@ -24,6 +24,12 @@ function doGet(e) {
 
 // FUNÇÃO include CORRIGIDA - DEVE ESTAR NO Main.gs
 function servirAsset_(nome) {
+  if (nome === "sw") {
+    return ContentService
+      .createTextOutput(getServiceWorkerContent_())
+      .setMimeType(getJavascriptMimeType_());
+  }
+
   var permitidos = {
     Script: true,
     LoginBootstrap: true
@@ -72,6 +78,18 @@ function getJavascriptMimeType_() {
   return ContentService.MimeType.JAVASCRIPT || ContentService.MimeType.TEXT;
 }
 
+function getServiceWorkerContent_() {
+  return [
+    "const CACHE_NAME = 'jw-piscinas-pwa-v1';",
+    "self.addEventListener('install', event => { self.skipWaiting(); });",
+    "self.addEventListener('activate', event => { event.waitUntil(self.clients.claim()); });",
+    "self.addEventListener('fetch', event => {",
+    "  if (event.request.method !== 'GET') return;",
+    "  event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));",
+    "});"
+  ].join('\\n');
+}
+
 function include(filename) {
   console.log("📄 Incluindo arquivo:", filename);
   try {
@@ -117,7 +135,7 @@ function testarConexao() {
 
 function diagnosticoArquivosHtml() {
   var arquivos = [
-    "Index",
+    "AppIndex",
     "Style",
     "Header",
     "LoginScreen",

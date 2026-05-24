@@ -4,9 +4,17 @@
     <div class="main-content">
       <header class="content-header">
         <div style="display: flex; align-items: center; gap: 1rem;">
-          <h2 id="currentPageTitle" style="font-size: 1.2rem; font-weight: 600;">Início</h2>
+          <h2 id="currentPageTitle" style="font-size: 1.2rem; font-weight: 600;">Inicio</h2>
         </div>
         <div style="display: flex; align-items: center; gap: 1rem;">
+          <button id="btnInstallPwaHeader" class="btn btn-secondary btn-sm d-none" onclick="JW.instalarPWA()" title="Instalar aplicativo">
+            <i class="fas fa-download"></i>
+            <span class="d-none d-md-inline">Instalar</span>
+          </button>
+          <button id="btnOpenAmbientMusic" class="btn btn-secondary btn-sm ambient-music-open-button" type="button" onclick="JW.abrirMusicaAmbiente()" title="Abrir musica ambiente">
+            <i class="fas fa-music"></i>
+            <span class="ambient-music-open-label">Musica</span>
+          </button>
           <div class="notifications-panel">
             <button class="notifications-icon" onclick="JW.toggleNotifications()">
               <i class="fas fa-bell"></i>
@@ -14,16 +22,15 @@
             </button>
             <div class="notifications-dropdown" id="notificationsDropdown">
               <div class="notifications-header" style="padding: var(--md); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: var(--sm); flex-wrap: wrap;">
-                <span><i class="fas fa-bell"></i> Notificações</span>
+                <span><i class="fas fa-bell"></i> Notificacoes</span>
                 <div class="notifications-header-actions">
-                  <button class="btn btn-sm btn-primary admin-only" onclick="JW.abrirEnvioNotificacaoAdmin()"><i class="fas fa-paper-plane"></i> Enviar mensagem</button>
                   <button class="btn btn-sm btn-secondary" onclick="JW.marcarTodasLidas()">Marcar todas como lidas</button>
                 </div>
               </div>
               <div class="notifications-list" id="notificationsList">
                 <div class="text-center" style="padding: 2rem; color: var(--text-muted);">
                   <i class="fas fa-bell-slash" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
-                  <p>Nenhuma notificação</p>
+                  <p>Nenhuma notificacao</p>
                 </div>
               </div>
             </div>
@@ -44,4 +51,15 @@
       </main>
     </div>
   </div>
+  <aside id="ambientMusicPanel" class="ambient-music-panel d-none" aria-label="Musica ambiente">
+    <div class="ambient-music-header">
+      <div>
+        <strong>Musica ambiente</strong>
+        <small>Jazz e bossa nova</small>
+      </div>
+      <button type="button" onclick="JW.fecharMusicaAmbiente()" title="Parar e fechar musica" aria-label="Parar e fechar musica">&times;</button>
+    </div>
+    <div id="ambientMusicPlayer" class="ambient-music-player"></div>
+    <p class="ambient-music-hint">Pressione play no video para ouvir durante o uso.</p>
+  </aside>
 </div>

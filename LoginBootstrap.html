@@ -1,4 +1,4 @@
-<script>
+﻿<script>
 (function() {
   window.JW = window.JW || {};
 
@@ -8,7 +8,11 @@
   JW.notificacoes = [];
   JW.produtoAtual = null;
   JW.orcamentoAnexo = null;
+  JW.orcamentoAnexos = [];
   JW.relatorioDados = null;
+  JW.financeiroDados = null;
+  JW.financeiroView = JW.financeiroView || "pendencias";
+  JW.financeiroBusca = JW.financeiroBusca || "";
   JW.navLoading = false;
   JW.navSeq = 0;
   JW.produtoFiltro = "Todos";
@@ -17,6 +21,33 @@
   JW.historicoFiltro = "Todos";
   JW.historicoItens = [];
   JW.relatorioSelecionado = "";
+  JW.lojaSuspensa = true;
+  JW.deferredInstallPrompt = null;
+  JW.pwaInicializado = false;
+  JW.conversasAdminCache = [];
+  JW.chatBuscaAdmin = "";
+  JW.chatTypingTimers = {};
+  JW.audioRecorder = null;
+  JW.audioChunks = [];
+  JW.audioRecordingStream = null;
+  JW.audioRecordingStartedAt = 0;
+  JW.audioRecordingTimer = null;
+  JW.audioRecordingContext = "";
+  JW.audioRecordingLocked = false;
+  JW.audioRecordingPointerId = null;
+  JW.audioRecordingStartX = 0;
+  JW.pwaPopupMostrado = false;
+  JW.pwaPopupDispensado = false;
+  JW.historicoNotificacoesAdmin = [];
+  JW.chatMensagemDetalhes = {};
+  JW.chatMensagemDetalhesSeq = 0;
+  JW.relatorioFinanceiroDados = null;
+  JW.orcamentosPendentesCache = [];
+  JW.comprasPendentesCache = [];
+  JW.chatFiltroAdmin = "todas";
+  JW.chatAdminMobileView = "lista";
+  JW.chatFavoritosAdmin = null;
+  JW.financeiroItemImagem = null;
 
   JW.escapeHTML = function(valor) {
     if (valor === null || valor === undefined) return "";
@@ -32,6 +63,502 @@
 
   JW.attrJs = function(valor) {
     return JW.escapeAttr(JSON.stringify(String(valor === null || valor === undefined ? "" : valor)));
+  };
+
+  JW.getLogoDataUri = function() {
+    return window.JW_LOGO_DATA_URI || "";
+  };
+
+  JW.logoImgHtml = function(classe) {
+    var logo = JW.getLogoDataUri();
+    return logo ? '<img class="' + JW.escapeAttr(classe || "chat-panel-logo") + '" src="' + JW.escapeAttr(logo) + '" alt="JW Piscinas">' : '<i class="fas fa-water"></i>';
+  };
+
+  JW.logoAvatarHtml = function(classe) {
+    var logo = JW.getLogoDataUri();
+    return '<span class="' + JW.escapeAttr(classe || "chat-avatar chat-avatar-logo") + '">' +
+      (logo ? '<img src="' + JW.escapeAttr(logo) + '" alt="JW Piscinas">' : '<i class="fas fa-water"></i>') +
+    '</span>';
+  };
+
+  JW.nomeExibicaoChat = function(nome, email, fallback) {
+    var texto = String(nome || "").trim();
+    if (!texto) texto = String(email || fallback || "Usuario").trim();
+    if (texto.indexOf("@") !== -1) texto = texto.split("@")[0];
+    return texto || "Usuario";
+  };
+
+  JW.inicialNomeChat = function(nome, email, fallback) {
+    var texto = JW.nomeExibicaoChat(nome, email, fallback).replace(/[^A-Za-zÀ-ÿ0-9 ]/g, "").trim();
+    return (texto.charAt(0) || "U").toUpperCase();
+  };
+
+  JW.avatarChatHtml = function(nome, email, classe, fallback) {
+    return '<span class="' + JW.escapeAttr(classe || "chat-avatar") + '">' + JW.escapeHTML(JW.inicialNomeChat(nome, email, fallback)) + '</span>';
+  };
+
+  JW.isMobileLayout = function() {
+    return window.innerWidth <= 768;
+  };
+
+  JW.storageGetJson = function(chave, fallback) {
+    try {
+      var bruto = window.localStorage ? window.localStorage.getItem(chave) : "";
+      return bruto ? JSON.parse(bruto) : fallback;
+    } catch (error) {
+      return fallback;
+    }
+  };
+
+  JW.storageSetJson = function(chave, valor) {
+    try {
+      if (window.localStorage) window.localStorage.setItem(chave, JSON.stringify(valor));
+    } catch (error) {}
+  };
+
+  JW.getFavoritosChatAdminKey = function() {
+    var email = (JW.usuarioLogado && JW.usuarioLogado.email ? String(JW.usuarioLogado.email) : "anon").toLowerCase();
+    return "jw_chat_favoritos_admin_" + email;
+  };
+
+  JW.getFavoritosChatAdmin = function() {
+    if (!JW.chatFavoritosAdmin) {
+      JW.chatFavoritosAdmin = JW.storageGetJson(JW.getFavoritosChatAdminKey(), null);
+      if (!JW.chatFavoritosAdmin) JW.chatFavoritosAdmin = JW.storageGetJson("jw_chat_favoritos_admin", {});
+    }
+    return JW.chatFavoritosAdmin || {};
+  };
+
+  JW.isFavoritoChatAdmin = function(email) {
+    var favoritos = JW.getFavoritosChatAdmin();
+    return !!favoritos[String(email || "").toLowerCase()];
+  };
+
+  JW.toggleFavoritoChatAdmin = function(email, event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    var chave = String(email || "").toLowerCase();
+    if (!chave) return;
+    var favoritos = JW.getFavoritosChatAdmin();
+    if (favoritos[chave]) delete favoritos[chave];
+    else favoritos[chave] = Date.now();
+    JW.chatFavoritosAdmin = favoritos;
+    JW.storageSetJson(JW.getFavoritosChatAdminKey(), favoritos);
+    JW.storageSetJson("jw_chat_favoritos_admin", favoritos);
+    var lista = document.getElementById("adminConversasFirebase");
+    if (lista) lista.innerHTML = JW.renderConversasAdmin(JW.conversasAdminCache || []);
+    var painel = document.getElementById("adminChatPanel");
+    if (painel && JW.chatClienteAtual) {
+      var nomeAtual = "";
+      for (var i = 0; i < (JW.conversasAdminCache || []).length; i++) {
+        if (String((JW.conversasAdminCache[i] || {}).clienteEmail || "") === String(JW.chatClienteAtual || "")) {
+          nomeAtual = (JW.conversasAdminCache[i] || {}).clienteNome || "";
+          break;
+        }
+      }
+      var hist = document.getElementById("chatHistoryAdmin");
+      painel.innerHTML = JW.renderAdminChatPainel(JW.chatClienteAtual, nomeAtual || JW.chatClienteAtual, []);
+      if (hist) {
+        var destino = document.getElementById("chatHistoryAdmin");
+        if (destino) destino.innerHTML = hist.innerHTML;
+      }
+    }
+  };
+
+  JW.setFiltroConversasAdmin = function(filtro) {
+    JW.chatFiltroAdmin = filtro || "todas";
+    var lista = document.getElementById("adminConversasFirebase");
+    if (lista) lista.innerHTML = JW.renderConversasAdmin(JW.conversasAdminCache || []);
+    var botoes = document.querySelectorAll(".admin-chat-filter");
+    for (var i = 0; i < botoes.length; i++) botoes[i].classList.toggle("active", botoes[i].getAttribute("data-filter") === JW.chatFiltroAdmin);
+  };
+
+  JW.resumirTexto = function(texto, limite) {
+    texto = String(texto || "").trim();
+    limite = limite || 80;
+    return texto.length > limite ? texto.slice(0, limite - 1) + "…" : texto;
+  };
+
+  JW.somenteData = function(valor) {
+    var texto = String(valor || "").trim();
+    if (!texto) return "";
+    var match = texto.match(/(\d{2}\/\d{2}\/\d{4})/);
+    if (match) return match[1];
+    var iso = texto.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return iso[3] + "/" + iso[2] + "/" + iso[1];
+    return texto;
+  };
+
+  JW.normalizarTextoComparacao = function(valor) {
+    return String(valor || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  };
+
+  JW.historicoTipoClasse = function(tipo) {
+    var texto = JW.normalizarTextoComparacao(tipo || "registro");
+    if (texto.indexOf("orc") !== -1) return "history-tone-orcamento";
+    if (texto.indexOf("compra") !== -1) return "history-tone-compra";
+    if (texto.indexOf("mensal") !== -1) return "history-tone-mensalidade";
+    if (texto.indexOf("cobr") !== -1) return "history-tone-cobranca";
+    if (texto.indexOf("serv") !== -1) return "history-tone-servico";
+    if (texto.indexOf("chat") !== -1) return "history-tone-chat";
+    return "history-tone-geral";
+  };
+
+  JW.formatarTipoHistorico = function(tipo) {
+    var texto = String(tipo || "Registro").trim();
+    if (!texto) return "Registro";
+    return texto;
+  };
+
+  JW.historicoDescricaoPrincipal = function(item) {
+    var descricao = String((item && item.descricao) || "").trim();
+    var observacoes = String((item && item.observacoes) || "").trim();
+    if (!descricao && observacoes) return observacoes;
+    return descricao;
+  };
+
+  JW.historicoObservacaoSecundaria = function(item) {
+    var descricao = JW.normalizarTextoComparacao((item && item.descricao) || "");
+    var observacoesBrutas = String((item && item.observacoes) || "").trim();
+    var observacoes = JW.normalizarTextoComparacao(observacoesBrutas);
+    if (!observacoesBrutas) return "";
+    if (!descricao) return observacoesBrutas;
+    if (observacoes === descricao) return "";
+    if (observacoes.indexOf(descricao) !== -1) return "";
+    return observacoesBrutas;
+  };
+
+  JW.obterUrlsAnexos = function(item) {
+    var urls = [];
+    function adicionar(valor) {
+      String(valor || "")
+        .split(/\r?\n|\s*\|\s*|,\s*/g)
+        .map(function(parte) { return String(parte || "").trim(); })
+        .filter(Boolean)
+        .forEach(function(url) {
+          if (urls.indexOf(url) === -1) urls.push(url);
+        });
+    }
+    adicionar(item && item.imagemURL);
+    adicionar(item && item.arquivoURL);
+    return urls;
+  };
+
+  JW.renderBotoesAnexos = function(item, rotulo) {
+    var urls = JW.obterUrlsAnexos(item);
+    if (!urls.length) return "";
+    var html = '<div class="history-attachments">';
+    for (var i = 0; i < urls.length; i++) {
+      html += '<button class="btn btn-sm btn-secondary" onclick="window.open(' + JW.attrJs(urls[i]) + ', ' + JW.attrJs("_blank") + ')"><i class="fas fa-paperclip"></i> ' + JW.escapeHTML((rotulo || "Anexo") + " " + (i + 1)) + '</button>';
+    }
+    return html + '</div>';
+  };
+
+  JW.timestampConversaAdmin = function(conversa) {
+    if (conversa && conversa.ultimaTimestamp) {
+      var ts = parseInt(conversa.ultimaTimestamp, 10);
+      if (!isNaN(ts)) return ts;
+    }
+    var texto = String((conversa && conversa.ultimaData) || "").trim();
+    var m = texto.match(/^(\d{2})\/(\d{2})\/(\d{4}),?\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (m) return new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10), parseInt(m[4], 10), parseInt(m[5], 10), parseInt(m[6] || "0", 10)).getTime();
+    var data = Date.parse(texto);
+    return isNaN(data) ? 0 : data;
+  };
+
+  JW.getConversasAdminFiltradas = function(conversas) {
+    var busca = JW.chatBuscaAdmin || "";
+    var filtro = JW.chatFiltroAdmin || "todas";
+    var favoritos = JW.getFavoritosChatAdmin();
+    var lista = (conversas || []).slice();
+    lista = lista.filter(function(c) {
+      var textoBusca = String((c.clienteNome || "") + " " + (c.clienteEmail || "") + " " + (c.ultimaMensagem || "")).toLowerCase();
+      if (busca && textoBusca.indexOf(busca) === -1) return false;
+      var naoLidas = parseInt(c.naoLidasAdmin, 10) || 0;
+      var favorito = !!favoritos[String(c.clienteEmail || "").toLowerCase()];
+      if (filtro === "favoritas") return favorito;
+      if (filtro === "nao-lidas") return naoLidas > 0;
+      if (filtro === "lidas") return naoLidas === 0;
+      return true;
+    });
+    lista.sort(function(a, b) {
+      var favA = favoritos[String((a && a.clienteEmail) || "").toLowerCase()] || 0;
+      var favB = favoritos[String((b && b.clienteEmail) || "").toLowerCase()] || 0;
+      if (favA && favB) return favA - favB;
+      if (favA) return -1;
+      if (favB) return 1;
+      return JW.timestampConversaAdmin(b) - JW.timestampConversaAdmin(a);
+    });
+    return lista;
+  };
+
+  JW.tratarImagemProdutoFinanceiro = function(arquivo, callback) {
+    if (!arquivo) {
+      callback("");
+      return;
+    }
+    if (!String(arquivo.type || "").match(/^image\//i)) {
+      JW.toast("Selecione uma imagem v&aacute;lida.", "error");
+      callback("");
+      return;
+    }
+    if (arquivo.size > 8 * 1024 * 1024) {
+      JW.toast("A imagem deve ter at&eacute; 8 MB.", "error");
+      callback("");
+      return;
+    }
+
+    var leitor = new FileReader();
+    leitor.onload = function(e) {
+      var img = new Image();
+      img.onload = function() {
+        var maxLado = 720;
+        var largura = img.width || maxLado;
+        var altura = img.height || maxLado;
+        if (largura > altura && largura > maxLado) {
+          altura = Math.round((altura / largura) * maxLado);
+          largura = maxLado;
+        } else if (altura >= largura && altura > maxLado) {
+          largura = Math.round((largura / altura) * maxLado);
+          altura = maxLado;
+        }
+        var canvas = document.createElement("canvas");
+        canvas.width = largura;
+        canvas.height = altura;
+        var ctx = canvas.getContext("2d");
+        if (!ctx) {
+          callback(e.target.result || "");
+          return;
+        }
+        ctx.drawImage(img, 0, 0, largura, altura);
+        callback(canvas.toDataURL("image/jpeg", 0.76));
+      };
+      img.onerror = function() {
+        callback(e.target.result || "");
+      };
+      img.src = e.target.result || "";
+    };
+    leitor.onerror = function() {
+      JW.toast("N&atilde;o foi poss&iacute;vel ler a imagem.", "error");
+      callback("");
+    };
+    leitor.readAsDataURL(arquivo);
+  };
+
+  JW.selecionarImagemItemFinanceiro = function(input) {
+    var arquivo = input && input.files && input.files[0];
+    var preview = document.getElementById("financeiroItemImagemPreview");
+    var legenda = document.getElementById("financeiroItemImagemLabel");
+    JW.financeiroItemImagem = null;
+    if (!arquivo) {
+      if (preview) preview.innerHTML = "";
+      if (legenda) legenda.textContent = "Selecionar imagem";
+      return;
+    }
+    if (legenda) legenda.textContent = arquivo.name;
+    JW.tratarImagemProdutoFinanceiro(arquivo, function(dataUrl) {
+      JW.financeiroItemImagem = dataUrl || null;
+      if (preview) {
+        preview.innerHTML = dataUrl
+          ? '<img src="' + JW.escapeAttr(dataUrl) + '" alt="Pr&eacute;via do produto"><button class="btn btn-sm btn-secondary" type="button" onclick="JW.removerImagemItemFinanceiro()">Remover</button>'
+          : '<span class="text-muted">Imagem n&atilde;o dispon&iacute;vel.</span>';
+      }
+    });
+  };
+
+  JW.removerImagemItemFinanceiro = function() {
+    JW.financeiroItemImagem = null;
+    var input = document.getElementById("financeiroItemImagem");
+    var preview = document.getElementById("financeiroItemImagemPreview");
+    var legenda = document.getElementById("financeiroItemImagemLabel");
+    if (input) input.value = "";
+    if (preview) preview.innerHTML = "";
+    if (legenda) legenda.textContent = "Selecionar imagem";
+  };
+
+  JW.getInfoPlataformaPWA = function() {
+    var ua = (window.navigator && window.navigator.userAgent) || "";
+    var isAndroid = /Android/i.test(ua);
+    var isIOS = /iPhone|iPad|iPod/i.test(ua);
+    var isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+    return {
+      android: isAndroid,
+      ios: isIOS,
+      safariIOS: isIOS && isSafari,
+      mobile: isAndroid || isIOS
+    };
+  };
+
+  JW.removerPopupInstalarPWA = function() {
+    var popup = document.getElementById("pwaInstallFloating");
+    if (popup && popup.parentNode) popup.parentNode.removeChild(popup);
+  };
+
+  JW.dispensarPopupInstalarPWA = function() {
+    JW.pwaPopupDispensado = true;
+    JW.removerPopupInstalarPWA();
+  };
+
+  JW.conteudoPopupInstalarPWA = function() {
+    var plataforma = JW.getInfoPlataformaPWA();
+    var podeInstalar = !!JW.deferredInstallPrompt;
+    if (plataforma.ios) {
+      return '<div class="pwa-install-stack"><div class="pwa-install-card pwa-install-card-secondary">' +
+        '<div class="pwa-ios-guide">' +
+          '<strong>SAFARI NO IPHONE</strong>' +
+          '<p>Para usar como app no iPhone, abra este sistema no <b>Safari</b>, toque em <b>Compartilhar</b> e depois em <b>Adicionar à Tela de Início</b>.</p>' +
+        '</div>' +
+        '<div class="modal-actions pwa-install-actions">' +
+          '<button class="btn btn-secondary" onclick="JW.dispensarPopupInstalarPWA()">Entendi</button>' +
+        '</div>' +
+      '</div></div>';
+    }
+
+    var destaqueAndroid = plataforma.android
+      ? '<div class="pwa-platform-badge"><i class="fab fa-android"></i><span>ANDROID</span><small>Toque em instalar para adicionar o app à tela inicial.</small></div>'
+      : '';
+    var acoes = podeInstalar
+      ? '<button class="btn btn-primary" onclick="JW.instalarPWA()"><i class="fas fa-download"></i> Instalar</button>'
+      : '<button class="btn btn-secondary" onclick="JW.dispensarPopupInstalarPWA()">Entendi</button>';
+    return '<div class="pwa-install-stack"><div class="pwa-install-card">' +
+      destaqueAndroid +
+      '<div class="modal-actions pwa-install-actions">' +
+        acoes +
+      '</div>' +
+    '</div></div>';
+  };
+
+  JW.aplicarLogoSistema = function() {
+    var logo = JW.getLogoDataUri();
+    if (!logo) return;
+    var imagens = document.querySelectorAll("[data-jw-logo]");
+    for (var i = 0; i < imagens.length; i++) {
+      imagens[i].src = logo;
+      imagens[i].classList.add("has-image");
+      var caixa = imagens[i].closest(".jw-logo");
+      if (caixa) caixa.classList.add("has-image");
+    }
+  };
+
+  JW.inicializarPWA = function() {
+    if (JW.pwaInicializado) return;
+    JW.pwaInicializado = true;
+    JW.aplicarLogoSistema();
+
+    window.addEventListener("beforeinstallprompt", function(event) {
+      event.preventDefault();
+      JW.deferredInstallPrompt = event;
+      JW.atualizarBotoesInstalarPWA(true);
+      JW.removerPopupInstalarPWA();
+    });
+
+    window.addEventListener("appinstalled", function() {
+      JW.deferredInstallPrompt = null;
+      JW.atualizarBotoesInstalarPWA(false);
+      JW.removerPopupInstalarPWA();
+      JW.toast("Aplicativo JW Piscinas instalado.", "success");
+    });
+
+    JW.criarManifestPWA();
+    JW.registrarServiceWorkerPWA();
+    window.setTimeout(function() {
+      JW.mostrarPopupInstalarPWA(false);
+    }, 1200);
+  };
+
+  JW.atualizarBotoesInstalarPWA = function(mostrar) {
+    var ids = ["btnInstallPwaLogin", "btnInstallPwaHeader"];
+    for (var i = 0; i < ids.length; i++) {
+      var btn = document.getElementById(ids[i]);
+      if (btn) btn.classList.toggle("d-none", !mostrar);
+    }
+  };
+
+  JW.criarManifestPWA = function() {
+    try {
+      var logo = JW.getLogoDataUri();
+      var manifest = {
+        name: "JW Piscinas",
+        short_name: "JW Piscinas",
+        start_url: window.location.href.split("#")[0],
+        scope: "./",
+        display: "standalone",
+        background_color: "#ffffff",
+        theme_color: "#0077B6",
+        icons: logo ? [
+          { src: logo, sizes: "192x192", type: "image/png", purpose: "any maskable" },
+          { src: logo, sizes: "512x512", type: "image/png", purpose: "any maskable" }
+        ] : []
+      };
+      var blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+      var link = document.querySelector('link[rel="manifest"]') || document.createElement("link");
+      link.rel = "manifest";
+      link.href = URL.createObjectURL(blob);
+      document.head.appendChild(link);
+      var theme = document.querySelector('meta[name="theme-color"]') || document.createElement("meta");
+      theme.name = "theme-color";
+      theme.content = "#0077B6";
+      document.head.appendChild(theme);
+    } catch (error) {
+      console.warn("Manifest PWA indisponivel:", error);
+    }
+  };
+
+  JW.registrarServiceWorkerPWA = function() {
+    if (!("serviceWorker" in navigator)) return;
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.set("asset", "sw");
+      url.searchParams.set("v", "1");
+      navigator.serviceWorker.register(url.toString()).catch(function(error) {
+        console.warn("Service worker PWA nao registrado:", error);
+      });
+    } catch (error) {
+      console.warn("Service worker PWA indisponivel:", error);
+    }
+  };
+
+  JW.instalarPWA = async function() {
+    if (!JW.deferredInstallPrompt) {
+      JW.toast("Use a opcao Instalar app do navegador se o botao nativo ainda nao apareceu.", "info");
+      return;
+    }
+    JW.deferredInstallPrompt.prompt();
+    await JW.deferredInstallPrompt.userChoice.catch(function() {});
+    JW.deferredInstallPrompt = null;
+    JW.atualizarBotoesInstalarPWA(false);
+    JW.removerPopupInstalarPWA();
+  };
+
+  JW.isPWAStandalone = function() {
+    return window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+  };
+
+  JW.mostrarPopupInstalarPWA = function(forcar) {
+    if (JW.isPWAStandalone()) return;
+    if (JW.pwaPopupDispensado) return;
+    if (!forcar && JW.pwaPopupMostrado) return;
+    var plataforma = JW.getInfoPlataformaPWA();
+    if (JW.deferredInstallPrompt && !plataforma.ios) {
+      JW.removerPopupInstalarPWA();
+      return;
+    }
+    JW.pwaPopupMostrado = true;
+    var popup = document.getElementById("pwaInstallFloating");
+    if (!popup) {
+      popup = document.createElement("div");
+      popup.id = "pwaInstallFloating";
+      popup.className = "pwa-install-floating";
+      document.body.appendChild(popup);
+    }
+    popup.innerHTML = JW.conteudoPopupInstalarPWA();
   };
 
   JW.formatarMoeda = function(valor) {
@@ -125,7 +652,7 @@
 
   JW.setTitulo = function(titulo) {
     var el = document.getElementById("currentPageTitle");
-    if (el) el.textContent = titulo || "Inicio";
+    if (el) el.textContent = titulo || "Início";
   };
 
   JW.renderMain = function(html) {
@@ -277,7 +804,7 @@
       btn.dataset.originalText = btn.innerHTML;
       btn.disabled = true;
       btn.classList.add("btn-login-loading");
-      btn.innerHTML = '<span class="mini-spinner"></span> Entrando no sistema...';
+      btn.innerHTML = 'Entrando...';
     } else {
       btn.disabled = false;
       btn.classList.remove("btn-login-loading");
@@ -423,12 +950,40 @@
     if (sidebarUserName) sidebarUserName.textContent = JW.usuarioLogado.usuario || JW.usuarioLogado.email || "Usuario";
     if (sidebarUserRole) sidebarUserRole.textContent = JW.usuarioLogado.tipo || "Cliente";
 
+    JW.aplicarLogoSistema();
+    JW.inicializarPWA();
     JW.carregarMenuDinamico();
     JW.prepararSidebarControls();
     JW.renderChatWidget();
     JW.carregarNotificacoes();
     JW.fecharNotificacoes();
+    JW.abrirMusicaAmbiente();
     JW.abrirTab(JW.isAdmin() ? "relatorios" : "inicio");
+  };
+
+  JW.abrirMusicaAmbiente = function() {
+    var painel = document.getElementById("ambientMusicPanel");
+    var container = document.getElementById("ambientMusicPlayer");
+    if (!JW.usuarioLogado || !painel || !container) return;
+
+    painel.classList.remove("d-none");
+    if (container.querySelector("iframe")) return;
+
+    var iframe = document.createElement("iframe");
+    iframe.src = "https://www.youtube-nocookie.com/embed/PRAGLqfNK1o?playsinline=1&loop=1&playlist=PRAGLqfNK1o&rel=0";
+    iframe.title = "New York Coffee Shop Ambience - Sweet Bossa Nova Jazz Music";
+    iframe.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture; fullscreen");
+    iframe.setAttribute("allowfullscreen", "");
+    iframe.setAttribute("loading", "lazy");
+    iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+    container.appendChild(iframe);
+  };
+
+  JW.fecharMusicaAmbiente = function() {
+    var painel = document.getElementById("ambientMusicPanel");
+    var container = document.getElementById("ambientMusicPlayer");
+    if (container) container.textContent = "";
+    if (painel) painel.classList.add("d-none");
   };
 
   JW.isAdmin = function() {
@@ -439,16 +994,18 @@
     var menu = document.getElementById("dynamicMenu");
     if (!menu) return;
     if (JW.isAdmin()) {
-      var html = '<a href="#" class="nav-item" data-tab="relatorios" title="Relatorios"><i class="fas fa-chart-line"></i><span>Relatorios</span></a>'
-        + '<a href="#" class="nav-item" data-tab="produtos" title="Produtos"><i class="fas fa-shopping-cart"></i><span>Produtos</span></a>'
-        + '<a href="#" class="nav-item" data-tab="historico" title="Historico"><i class="fas fa-history"></i><span>Historico</span></a>'
-        + '<a href="#" class="nav-item" data-tab="ordem-servico" title="Pendencias"><i class="fas fa-clipboard-list"></i><span>Pendencias</span></a>';
+      var html = '<a href="#" class="nav-item" data-tab="relatorios" title="Relatórios"><i class="fas fa-chart-line"></i><span>Relatórios</span></a>'
+        + '<a href="#" class="nav-item" data-tab="historico" title="Histórico"><i class="fas fa-history"></i><span>Histórico</span></a>'
+        + '<a href="#" class="nav-item" data-tab="ordem-servico" title="Pendências"><i class="fas fa-clipboard-list"></i><span>Pendências</span></a>'
+        + '<a href="#" class="nav-item" data-tab="financeiro" title="Financeiro"><i class="fas fa-wallet"></i><span>Financeiro</span></a>'
+        + '<a href="#" class="nav-item" data-tab="comunicacao" title="Comunicação"><i class="fas fa-message"></i><span>Comunicação</span></a>'
+        + '<a href="#" class="nav-item module-inactive" data-tab="produtos" title="Loja suspensa"><i class="fas fa-shopping-cart"></i><span>Loja</span></a>';
     } else {
       var html = '<a href="#" class="nav-item" data-tab="inicio" title="Inicio"><i class="fas fa-home"></i><span>Inicio</span></a>'
         + '<a href="#" class="nav-item" data-tab="solicitar-orcamento" title="Orcamentos"><i class="fas fa-file-invoice-dollar"></i><span>Orcamentos</span></a>'
-        + '<a href="#" class="nav-item" data-tab="produtos" title="Produtos"><i class="fas fa-shopping-cart"></i><span>Produtos</span></a>'
         + '<a href="#" class="nav-item" data-tab="historico" title="Historico"><i class="fas fa-history"></i><span>Historico</span></a>'
-        + '<a href="#" class="nav-item" data-tab="manuais" title="Manuais"><i class="fas fa-book"></i><span>Manuais</span></a>';
+        + '<a href="#" class="nav-item" data-tab="manuais" title="Manuais"><i class="fas fa-book"></i><span>Manuais</span></a>'
+        + '<a href="#" class="nav-item module-inactive nav-item-store-suspended" data-tab="produtos" title="Loja suspensa"><i class="fas fa-store-slash"></i><span>Loja</span></a>';
     }
     menu.innerHTML = html;
 
@@ -522,8 +1079,10 @@
       else if (tabBase === "historico") await JW.carregarHistorico();
       else if (tabBase === "manuais") await JW.carregarManuais();
       else if (tabBase === "ordem-servico") await JW.carregarPendencias();
+      else if (tabBase === "financeiro") await JW.carregarFinanceiro();
       else if (tabBase === "relatorios") await JW.carregarRelatorios();
-      else if (tabBase === "mensagens" || tabBase === "admin") await JW.carregarMensagensDiretas();
+      else if (tabBase === "chat") await JW.carregarChatClientePagina();
+      else if (tabBase === "comunicacao" || tabBase === "mensagens" || tabBase === "admin") await JW.carregarMensagensDiretas();
       else JW.renderMain('<div class="card"><h3>Modulo indisponivel</h3></div>');
     } catch (error) {
       if (navSeq === JW.navSeq) JW.renderMain('<div class="card text-center"><h3>Erro ao carregar</h3><p style="color:red;">' + JW.escapeHTML(error.message || error) + '</p><button class="btn btn-primary" onclick="JW.abrirTab(' + JW.attrJs(tabBase) + ')">Tentar novamente</button></div>');
@@ -549,16 +1108,27 @@
       await JW.carregarRelatorios();
       return;
     } else {
+      var resumoCliente = {};
+      try {
+        resumoCliente = await JW.chamarGoogleScript("diagnosticoSistemaV3", JW.usuarioLogado.email);
+      } catch (errorResumo) {
+        resumoCliente = {};
+      }
       JW.setTitulo("Inicio");
       JW.renderMain(
         '<section class="client-welcome">' +
-          '<div class="client-welcome-mark"><i class="fas fa-water"></i></div>' +
+          '<div class="client-welcome-mark">' + JW.logoImgHtml("client-welcome-logo") + '</div>' +
           '<h2>Bem-vindo, ' + JW.escapeHTML(JW.usuarioLogado.usuario || "cliente") + '.</h2>' +
-          '<p>Este e seu espaco para cuidar da piscina com mais tranquilidade. Por aqui voce acompanha solicitacoes, consulta compras, acessa manuais dos produtos e recebe avisos importantes da JW Piscinas.</p>' +
-          '<p>Quando precisar de atendimento, envie um orcamento com descricao e anexo. Nossa equipe retorna com uma proposta por e-mail ou WhatsApp e todo o andamento fica registrado no seu historico.</p>' +
+          '<p>Este e seu espaco para cuidar da piscina com mais tranquilidade. Por aqui voce acompanha solicitacoes, acessa manuais dos produtos, consulta seu historico e fala direto com o atendimento.</p>' +
+          '<p>Quando precisar de atendimento, envie um orcamento com descricao e fotos. Nossa equipe retorna com uma proposta por e-mail ou WhatsApp e todo o andamento fica registrado no seu historico.</p>' +
+          '<div class="dashboard-stats client-home-stats">' +
+            JW.cardMetrica("Historico", resumoCliente.historicoQuantidade || 0, "fas fa-history", "JW.abrirTab(" + JW.attrJs("historico") + ")", "metric-click metric-static") +
+            JW.cardMetrica("Orcamentos", resumoCliente.orcamentosPendentes || 0, "fas fa-file-invoice-dollar", "JW.abrirTab(" + JW.attrJs("solicitar-orcamento") + ")", "metric-click metric-static") +
+            JW.cardMetrica("Compras", resumoCliente.comprasPendentes || 0, "fas fa-shopping-cart", "", "metric-static") +
+          '</div>' +
           '<div class="client-capabilities">' +
             '<span><i class="fas fa-file-invoice-dollar"></i> Orcamentos acompanhados</span>' +
-            '<span><i class="fas fa-shopping-cart"></i> Loja com estoque atualizado</span>' +
+            '<span><i class="fas fa-history"></i> Historico centralizado</span>' +
             '<span><i class="fas fa-book"></i> Manuais e videos</span>' +
             '<span><i class="fas fa-comments"></i> Contato direto com o admin</span>' +
           '</div>' +
@@ -569,7 +1139,7 @@
 
   JW.carregarResumoAdminLegado = async function() {
     if (JW.isAdmin()) {
-      JW.setTitulo("Relatorios");
+      JW.setTitulo("Relatórios");
       var d = await JW.chamarGoogleScript("getDashboardAdminV3");
       d = d || {};
       var receber = d && d.aReceber ? d.aReceber : { total: 0, totalFormatado: "R$ 0,00" };
@@ -639,9 +1209,9 @@
     else if (tipo === "receber") {
       var rec = d.aReceber || {};
       html = '<h3>A receber</h3>' +
-        '<h4>Compras nao pagas</h4>' + JW.renderTabelaSimples(rec.comprasNaoPagas || [], ["id", "cliente", "valorTotalFormatado", "statusPagamento", "statusEntrega"]) +
+        '<h4>Compras não pagas</h4>' + JW.renderTabelaSimples(rec.comprasNaoPagas || [], ["id", "cliente", "valorTotalFormatado", "statusPagamento", "statusEntrega"]) +
         '<h4>Pagamentos pendentes</h4>' + JW.renderTabelaSimples(rec.pagamentosPendentes || [], ["id", "cliente", "tipo", "valorFormatado", "status"]) +
-        '<h4>Servicos nao pagos</h4>' + JW.renderTabelaSimples(rec.servicosNaoPagos || [], ["id", "cliente", "tipo", "valorFormatado", "status"]);
+        '<h4>Serviços não pagos</h4>' + JW.renderTabelaSimples(rec.servicosNaoPagos || [], ["id", "cliente", "tipo", "valorFormatado", "status"]);
     }
     painel.innerHTML = html;
     painel.classList.remove("d-none");
@@ -659,10 +1229,11 @@
   JW.renderSolicitarOrcamento = function() {
     JW.setTitulo("Orcamentos");
     JW.orcamentoAnexo = null;
+    JW.orcamentoAnexos = [];
     var draft = JW.getOrcamentoDraft();
     JW.renderMain(
       '<div class="card">' +
-        '<h3>Solicitar orcamento</h3>' +
+        '<h3>Solicitar orçamento</h3>' +
         '<div class="form-group">' +
           '<label class="form-label">Tipo de servico</label>' +
           '<select id="orcTipo" class="form-input" onchange="JW.salvarDraftOrcamento()">' +
@@ -671,7 +1242,7 @@
           '</select>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label class="form-label">Descricao</label>' +
+          '<label class="form-label">Descrição</label>' +
           '<textarea id="orcDescricao" class="form-input" rows="5" placeholder="Descreva o que precisa ser feito" oninput="JW.salvarDraftOrcamento()">' + JW.escapeHTML(draft.descricao || "") + '</textarea>' +
         '</div>' +
         '<div class="form-group">' +
@@ -679,18 +1250,19 @@
           '<input id="orcTelefone" class="form-input" type="tel" value="' + JW.escapeAttr(draft.telefone || ((JW.usuarioLogado && JW.usuarioLogado.telefone) || "")) + '" oninput="JW.formatarTelefone(this); JW.salvarDraftOrcamento();">' +
         '</div>' +
         '<div class="form-group">' +
-          '<label class="form-label">Anexo</label>' +
-          '<label class="file-picker-modern"><i class="fas fa-camera"></i><span id="orcAnexoLabel">Escolher anexo</span><input id="orcAnexo" type="file" accept="image/*,.pdf" capture="environment" onchange="JW.selecionarAnexoOrcamento(this)"></label>' +
-          '<small class="text-muted attachment-help">Tire uma foto ou anexe uma imagem/arquivo da galeria.</small>' +
-          '<div id="orcamentoAnexoPreview" class="attachment-preview d-none" style="margin-top:.75rem;"></div>' +
+          '<label class="form-label">Fotos</label>' +
+          '<input id="orcAnexo" class="d-none" type="file" accept="image/*" capture="environment" multiple onchange="JW.selecionarAnexoOrcamento(this)">' +
+          '<div id="orcamentoAnexoPreview" class="orcamento-anexos-grid"></div>' +
+          '<small class="text-muted attachment-help">Tire uma foto, adicione outras pelo botao + e remova quando precisar.</small>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label class="form-label">Observacoes</label>' +
+          '<label class="form-label">Observações</label>' +
           '<textarea id="orcObservacoes" class="form-input" rows="3" oninput="JW.salvarDraftOrcamento()">' + JW.escapeHTML(draft.observacoes || "") + '</textarea>' +
         '</div>' +
         '<button class="btn btn-primary" onclick="JW.enviarOrcamento()"><i class="fas fa-paper-plane"></i> Enviar solicitacao</button>' +
       '</div>'
     );
+    JW.renderAnexosOrcamento();
   };
 
   JW.getOrcamentoDraft = function() {
@@ -717,40 +1289,54 @@
   };
 
   JW.selecionarAnexoOrcamento = function(input) {
-    var file = input && input.files && input.files[0];
-    var preview = document.getElementById("orcamentoAnexoPreview");
-    JW.orcamentoAnexo = null;
-    if (!file) {
-      if (preview) preview.classList.add("d-none");
-      return;
+    var files = input && input.files ? Array.prototype.slice.call(input.files) : [];
+    if (!files.length) return;
+    var pendentes = files.length;
+    for (var i = 0; i < files.length; i++) {
+      (function(file) {
+        if (file.size > 8 * 1024 * 1024) {
+          JW.toast("Anexo muito grande. Use um arquivo de ate 8 MB.", "error");
+          pendentes--;
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          JW.orcamentoAnexos.push({
+            nome: file.name,
+            tipo: file.type,
+            dataUrl: e.target.result
+          });
+          pendentes--;
+          if (pendentes <= 0) JW.renderAnexosOrcamento();
+        };
+        reader.readAsDataURL(file);
+      })(files[i]);
     }
-    if (file.size > 8 * 1024 * 1024) {
-      JW.toast("Anexo muito grande. Use um arquivo de ate 8 MB.", "error");
-      input.value = "";
-      return;
-    }
-
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      JW.orcamentoAnexo = { nome: file.name, tipo: file.type, dataUrl: e.target.result };
-      var label = document.getElementById("orcAnexoLabel");
-      if (label) label.textContent = file.name;
-      if (preview) {
-        preview.classList.remove("d-none");
-        preview.innerHTML = '<i class="fas fa-paperclip"></i> ' + JW.escapeHTML(file.name) + ' <button class="btn btn-sm btn-secondary" onclick="JW.removerAnexoOrcamento()">Remover</button>';
-      }
-    };
-    reader.readAsDataURL(file);
+    input.value = "";
   };
 
-  JW.removerAnexoOrcamento = function() {
-    JW.orcamentoAnexo = null;
+  JW.renderAnexosOrcamento = function() {
+    var preview = document.getElementById("orcamentoAnexoPreview");
+    if (!preview) return;
+    var anexos = JW.orcamentoAnexos || [];
+    var html = "";
+    for (var i = 0; i < anexos.length; i++) {
+      var anexo = anexos[i] || {};
+      html += '<div class="orcamento-anexo-card">' +
+        '<img src="' + JW.escapeAttr(anexo.dataUrl || "") + '" alt="' + JW.escapeAttr(anexo.nome || "Foto") + '">' +
+        '<button class="orcamento-anexo-remove" type="button" onclick="JW.removerAnexoOrcamento(' + i + ')"><i class="fas fa-times"></i></button>' +
+      '</div>';
+    }
+    html += '<button class="orcamento-anexo-add" type="button" onclick="document.getElementById(' + JW.attrJs("orcAnexo") + ').click()"><i class="fas fa-plus"></i><span>Adicionar</span></button>';
+    preview.innerHTML = html;
+  };
+
+  JW.removerAnexoOrcamento = function(index) {
+    if (typeof index === "number") JW.orcamentoAnexos.splice(index, 1);
     var input = document.getElementById("orcAnexo");
     var preview = document.getElementById("orcamentoAnexoPreview");
-    var label = document.getElementById("orcAnexoLabel");
     if (input) input.value = "";
-    if (label) label.textContent = "Escolher anexo";
-    if (preview) preview.classList.add("d-none");
+    if (preview) JW.renderAnexosOrcamento();
   };
 
   JW.enviarOrcamento = async function() {
@@ -764,11 +1350,14 @@
       return;
     }
 
-    JW.mostrarLoading(JW.orcamentoAnexo ? "Enviando anexo..." : "Enviando orcamento...");
+    JW.mostrarLoading(JW.orcamentoAnexo ? "Enviando anexo..." : "Enviando orçamento...");
     try {
-      var anexoURL = "";
-      if (JW.orcamentoAnexo && JW.orcamentoAnexo.dataUrl) {
-        anexoURL = await JW.chamarGoogleScript("uploadImagemParaDrive", JW.orcamentoAnexo.dataUrl, JW.orcamentoAnexo.nome);
+      var anexosUrls = [];
+      for (var i = 0; i < (JW.orcamentoAnexos || []).length; i++) {
+        var anexoAtual = JW.orcamentoAnexos[i];
+        if (!anexoAtual || !anexoAtual.dataUrl) continue;
+        var urlAnexoAtual = await JW.chamarGoogleScript("uploadImagemParaDrive", anexoAtual.dataUrl, anexoAtual.nome);
+        if (urlAnexoAtual) anexosUrls.push(urlAnexoAtual);
       }
 
       var resultado = await JW.chamarGoogleScript("solicitarOrcamento", {
@@ -777,15 +1366,15 @@
         telefone: telefone,
         tipoServico: tipo,
         descricao: descricao,
-        imagemURL: anexoURL || "",
-        arquivoURL: anexoURL || "",
-        arquivoNome: JW.orcamentoAnexo ? JW.orcamentoAnexo.nome : "",
+        imagemURL: anexosUrls[0] || "",
+        arquivoURL: anexosUrls.join("\n"),
+        arquivoNome: (JW.orcamentoAnexos || []).map(function(item) { return item.nome || ""; }).filter(Boolean).join(" | "),
         observacoes: observacoes
       });
       JW.esconderLoading();
 
       if (resultado && resultado.success) {
-        JW.toast("Orcamento recebido com sucesso. Retornaremos com uma proposta por e-mail e/ou WhatsApp.", "success");
+        JW.toast("Orçamento recebido com sucesso. Retornaremos com uma proposta por e-mail e/ou WhatsApp.", "success");
         JW.limparDraftOrcamento();
         JW.renderSolicitarOrcamento();
       } else {
@@ -793,7 +1382,7 @@
       }
     } catch (error) {
       JW.esconderLoading();
-      JW.toast("Erro ao enviar orcamento: " + (error.message || error), "error");
+      JW.toast("Erro ao enviar orçamento: " + (error.message || error), "error");
     }
   };
 
@@ -821,7 +1410,7 @@
     var filtros = '<div class="history-filter-bar">' +
       '<button class="filter-btn todos ' + (JW.historicoFiltro === "Todos" ? "active" : "") + '" onclick="JW.filtrarHistorico(' + JW.attrJs("Todos") + ')">Todos</button>';
     for (var j = 0; j < tipos.length; j++) {
-      filtros += '<button class="filter-btn ' + (JW.historicoFiltro === tipos[j] ? "active" : "") + '" onclick="JW.filtrarHistorico(' + JW.attrJs(tipos[j]) + ')">' + JW.escapeHTML(tipos[j]) + '</button>';
+      filtros += '<button class="filter-btn ' + JW.escapeAttr(JW.historicoTipoClasse(tipos[j])) + ' ' + (JW.historicoFiltro === tipos[j] ? "active" : "") + '" onclick="JW.filtrarHistorico(' + JW.attrJs(tipos[j]) + ')">' + JW.escapeHTML(tipos[j]) + '</button>';
     }
     filtros += '</div>';
     JW.renderMain(filtros + '<div class="history-list">' + JW.renderListaHistorico(lista) + '</div>');
@@ -846,20 +1435,23 @@
     for (var i = 0; i < itens.length; i++) {
       var item = itens[i] || {};
       var cardId = "history-card-" + i;
-      html += '<div class="history-card" id="' + cardId + '">' +
+      var descricao = JW.historicoDescricaoPrincipal(item);
+      var observacao = JW.historicoObservacaoSecundaria(item);
+      var tipoClasse = JW.historicoTipoClasse(item.tipo);
+      html += '<div class="history-card collapsed ' + JW.escapeAttr(tipoClasse) + '" id="' + cardId + '">' +
         '<div class="history-main">' +
           '<div class="history-head-row">' +
             '<div>' +
-              '<div class="history-kicker">' + JW.escapeHTML(item.tipo || "Registro") + ' | ' + JW.escapeHTML(item.dataRegistro || "") + '</div>' +
+              '<div class="history-kicker">' + JW.escapeHTML(JW.formatarTipoHistorico(item.tipo)) + ' | ' + JW.escapeHTML(JW.somenteData(item.dataRegistro || "")) + '</div>' +
               '<strong>' + JW.escapeHTML(item.titulo || item.id || "") + '</strong>' +
             '</div>' +
-            '<button class="history-toggle" onclick="JW.toggleHistoryItem(' + JW.attrJs(cardId) + ')" title="Minimizar ou expandir"><i class="fas fa-chevron-up"></i></button>' +
+            '<button class="history-toggle" onclick="JW.toggleHistoryItem(' + JW.attrJs(cardId) + ')" title="Minimizar ou expandir"><i class="fas fa-chevron-down"></i></button>' +
           '</div>' +
           '<div class="history-main-body">' +
-            '<div class="history-meta"><span>ID: ' + JW.escapeHTML(item.id || "") + '</span>' + (item.telefone ? '<span>Telefone: ' + JW.escapeHTML(item.telefone) + '</span>' : '') + (item.dataValidade ? '<span>Validade: ' + JW.escapeHTML(item.dataValidade) + '</span>' : '') + '</div>' +
-            '<p>' + JW.escapeHTML(item.descricao || "") + '</p>' +
-            (item.observacoes ? '<div class="history-note">Observacoes: ' + JW.escapeHTML(item.observacoes) + '</div>' : '') +
-            (item.arquivoURL || item.imagemURL ? '<button class="btn btn-sm btn-secondary" onclick="window.open(' + JW.attrJs(item.arquivoURL || item.imagemURL) + ', ' + JW.attrJs("_blank") + ')"><i class="fas fa-paperclip"></i> Ver anexo</button>' : '') +
+            '<div class="history-meta"><span>ID: ' + JW.escapeHTML(item.id || "") + '</span>' + (item.telefone ? '<span>Telefone: ' + JW.escapeHTML(item.telefone) + '</span>' : '') + (item.dataValidade ? '<span>Validade: ' + JW.escapeHTML(JW.somenteData(item.dataValidade)) + '</span>' : '') + '</div>' +
+            (descricao ? '<p>' + JW.escapeHTML(descricao) + '</p>' : '') +
+            (observacao ? '<div class="history-note">Observacoes: ' + JW.escapeHTML(observacao) + '</div>' : '') +
+            JW.renderBotoesAnexos(item, "Anexo") +
           '</div>' +
         '</div>' +
         '<div class="history-side">' +
@@ -872,7 +1464,11 @@
   };
 
   JW.carregarProdutos = async function(produtoFoco) {
-    JW.setTitulo("Produtos");
+    JW.setTitulo(JW.lojaSuspensa ? "Loja suspensa" : "Produtos");
+    if (JW.lojaSuspensa && !JW.isAdmin()) {
+      JW.renderMain('<div class="card text-center"><h3><i class="fas fa-store-slash"></i> Loja temporariamente suspensa</h3><p class="text-muted">Este modulo esta indisponivel no momento.</p></div>');
+      return;
+    }
     var produtos = await JW.chamarGoogleScript("getProdutos");
     JW.produtosCache = produtos || [];
     JW.renderLojaProdutos(produtoFoco);
@@ -903,8 +1499,9 @@
   JW.renderLojaProdutos = function(produtoFoco) {
     var lista = JW.produtoFiltro === "Todos" ? JW.produtosCache : JW.produtosCache.filter(function(p) { return (p.categoria || "Sem categoria") === JW.produtoFiltro; });
     JW.renderMain(
+      (JW.lojaSuspensa ? '<div class="module-suspended-banner"><i class="fas fa-store-slash"></i><div><strong>Loja suspensa temporariamente</strong><br><span class="text-muted">Configuracoes, produtos e historico continuam preservados. Admins podem visualizar, mas compras e edicoes estao inativas.</span></div></div>' : '') +
       JW.renderFiltrosCategorias(JW.getCategorias(JW.produtosCache), JW.produtoFiltro, "JW.filtrarProdutos") +
-      '<div class="products-grid">' + JW.renderProdutos(lista, produtoFoco) + '</div>'
+      '<div class="products-grid ' + (JW.lojaSuspensa ? "store-suspended" : "") + '">' + JW.renderProdutos(lista, produtoFoco) + '</div>'
     );
     if (produtoFoco) {
       window.setTimeout(function() {
@@ -928,19 +1525,19 @@
       var preco = JW.numero(p.preco);
       var desconto = JW.numero(p.precoComDesconto);
       var temDesconto = desconto > 0;
-      var podeComprar = estoque > 0;
+      var podeComprar = estoque > 0 && !JW.lojaSuspensa;
       var img = p.imagemURL ? '<img src="' + JW.escapeAttr(p.imagemURL) + '" class="product-image" alt="' + JW.escapeAttr(p.nome || "Produto") + '" onerror="this.parentElement.innerHTML=\'<i class=&quot;fas fa-box&quot; style=&quot;font-size:2rem;color:var(--text-muted)&quot;></i>\';">' : '<i class="fas fa-box" style="font-size:2rem;color:var(--text-muted)"></i>';
       var precoHtml = "";
       if (temDesconto) {
         precoHtml = '<div class="product-price-container product-price-has-discount">' +
-          '<div class="text-muted" style="text-decoration:line-through;cursor:' + (JW.isAdmin() ? "pointer" : "default") + ';" ' + (JW.isAdmin() ? 'onclick="JW.editarPrecoProduto(' + JW.attrJs(p.id) + ', ' + JW.attrJs("preco") + ')" title="Alterar preco cheio"' : '') + '>' + JW.formatarMoeda(preco) + '</div>' +
-          '<div class="product-price" ' + (JW.isAdmin() ? 'onclick="JW.editarPrecoProduto(' + JW.attrJs(p.id) + ', ' + JW.attrJs("desconto") + ')" title="Alterar preco com desconto"' : '') + '>' + JW.formatarMoeda(desconto) + '</div>' +
+          '<div class="text-muted" style="text-decoration:line-through;cursor:' + (JW.isAdmin() && !JW.lojaSuspensa ? "pointer" : "default") + ';" ' + (JW.isAdmin() && !JW.lojaSuspensa ? 'onclick="JW.editarPrecoProduto(' + JW.attrJs(p.id) + ', ' + JW.attrJs("preco") + ')" title="Alterar preco cheio"' : '') + '>' + JW.formatarMoeda(preco) + '</div>' +
+          '<div class="product-price" ' + (JW.isAdmin() && !JW.lojaSuspensa ? 'onclick="JW.editarPrecoProduto(' + JW.attrJs(p.id) + ', ' + JW.attrJs("desconto") + ')" title="Alterar preco com desconto"' : '') + '>' + JW.formatarMoeda(desconto) + '</div>' +
         '</div>';
       } else {
-        precoHtml = '<div class="product-price-container product-price-single"><div class="product-price" ' + (JW.isAdmin() ? 'onclick="JW.editarPrecoProduto(' + JW.attrJs(p.id) + ', ' + JW.attrJs("preco") + ')" title="Alterar preco"' : '') + '>' + JW.formatarMoeda(preco) + '</div></div>';
+        precoHtml = '<div class="product-price-container product-price-single"><div class="product-price" ' + (JW.isAdmin() && !JW.lojaSuspensa ? 'onclick="JW.editarPrecoProduto(' + JW.attrJs(p.id) + ', ' + JW.attrJs("preco") + ')" title="Alterar preco"' : '') + '>' + JW.formatarMoeda(preco) + '</div></div>';
       }
 
-      html += '<div class="product-card" id="produto-' + JW.escapeAttr(p.id) + '">' +
+      html += '<div class="product-card ' + (JW.lojaSuspensa ? "store-suspended" : "") + '" id="produto-' + JW.escapeAttr(p.id) + '">' +
         '<div class="product-image-container">' + img + '</div>' +
         '<div class="product-info">' +
           '<div class="product-name">' + JW.escapeHTML(p.nome || "Produto") + '</div>' +
@@ -949,7 +1546,7 @@
           precoHtml +
           '<div class="text-muted" style="margin:.5rem 0;">Estoque: ' + estoque + '</div>' +
           '<div style="display:flex;gap:.5rem;flex-wrap:wrap;">' +
-            '<button class="btn ' + (podeComprar ? "btn-success" : "btn-secondary") + '" ' + (podeComprar ? 'onclick="JW.abrirCompraProduto(' + JW.attrJs(p.id) + ')"' : "disabled") + '><i class="fas fa-shopping-cart"></i> Comprar</button>' +
+            '<button class="btn ' + (podeComprar ? "btn-success" : "btn-secondary") + '" ' + (podeComprar ? 'onclick="JW.abrirCompraProduto(' + JW.attrJs(p.id) + ')"' : "disabled") + '><i class="fas fa-shopping-cart"></i> ' + (JW.lojaSuspensa ? "Suspenso" : "Comprar") + '</button>' +
             (p.exibirManual && (p.manualURL || p.manualVideoURL) ? '<button class="btn btn-manual" onclick="JW.abrirManualProduto(' + JW.attrJs(p.id) + ')"><i class="fas fa-book"></i> Manual</button>' : '') +
           '</div>' +
         '</div>' +
@@ -966,6 +1563,10 @@
   };
 
   JW.abrirCompraProduto = function(id) {
+    if (JW.lojaSuspensa) {
+      JW.toast("Loja suspensa temporariamente. Visualizacao liberada apenas para administradores.", "info");
+      return;
+    }
     var produto = JW.buscarProduto(id);
     if (!produto) return;
     JW.produtoAtual = produto;
@@ -1129,7 +1730,7 @@
   };
 
   JW.carregarPendencias = async function() {
-    JW.setTitulo("Pendencias");
+    JW.setTitulo("Pendências");
     if (!JW.isAdmin()) {
       JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
       return;
@@ -1138,12 +1739,14 @@
     var c = await JW.chamarGoogleScript("getCentralAdminV3");
     var orcamentos = (c && c.orcamentosPendentes) || [];
     var compras = (c && c.comprasPendentes) || [];
-    var html = '<section class="collapsible-section section-orcamentos" id="secOrcamentosPendentes">' +
-      '<button class="collapsible-header" onclick="JW.toggleSection(' + JW.attrJs("secOrcamentosPendentes") + ')"><span><i class="fas fa-file-invoice-dollar"></i> Orcamentos pendentes</span><strong>' + orcamentos.length + '</strong><i class="fas fa-chevron-up"></i></button>' +
+    JW.orcamentosPendentesCache = orcamentos;
+    JW.comprasPendentesCache = compras;
+    var html = '<section class="collapsible-section section-orcamentos collapsed" id="secOrcamentosPendentes">' +
+      '<button class="collapsible-header" onclick="JW.toggleSection(' + JW.attrJs("secOrcamentosPendentes") + ')"><span><i class="fas fa-file-invoice-dollar"></i> Orçamentos pendentes</span><strong>' + orcamentos.length + '</strong><i class="fas fa-chevron-down"></i></button>' +
       '<div class="collapsible-content">' + JW.renderOrcamentosAdmin(orcamentos) + '</div>' +
     '</section>' +
-    '<section class="collapsible-section section-compras" id="secComprasPendentes">' +
-      '<button class="collapsible-header" onclick="JW.toggleSection(' + JW.attrJs("secComprasPendentes") + ')"><span><i class="fas fa-shopping-cart"></i> Compras pendentes</span><strong>' + compras.length + '</strong><i class="fas fa-chevron-up"></i></button>' +
+    '<section class="collapsible-section section-compras collapsed" id="secComprasPendentes">' +
+      '<button class="collapsible-header" onclick="JW.toggleSection(' + JW.attrJs("secComprasPendentes") + ')"><span><i class="fas fa-shopping-cart"></i> Compras pendentes</span><strong>' + compras.length + '</strong><i class="fas fa-chevron-down"></i></button>' +
       '<div class="collapsible-content">' + JW.renderComprasAdmin(compras) + '</div>' +
     '</section>';
     if (c && c.erros && c.erros.length) html += '<div class="alert alert-error">' + JW.escapeHTML(c.erros.join(" | ")) + '</div>';
@@ -1159,26 +1762,68 @@
   };
 
   JW.renderOrcamentosAdmin = function(lista) {
-    if (!lista || !lista.length) return '<p class="text-muted">Nenhum orcamento pendente.</p>';
-    var html = '<div class="pending-grid pending-orcamentos">';
+    if (!lista || !lista.length) return '<p class="text-muted">Nenhum or&ccedil;amento pendente.</p>';
+    if (JW.isMobileLayout()) {
+      var mobileHtml = '<div class="pending-mobile-list">';
+      for (var m = 0; m < lista.length; m++) {
+        var om = lista[m];
+        mobileHtml += '<article class="pending-mobile-card">' +
+          '<div class="pending-mobile-copy"><strong>' + JW.escapeHTML(om.cliente || "-") + '</strong><span>' + JW.escapeHTML(om.tipoServico || "-") + '</span></div>' +
+          '<div class="pending-mobile-actions">' +
+            '<button class="btn btn-sm btn-secondary" onclick="JW.abrirDetalhesOrcamentoPendente(' + JW.attrJs(om.id) + ')">Detalhes</button>' +
+            '<button class="btn btn-sm btn-primary" onclick="JW.abrirModalPropostaOrcamento(' + JW.attrJs(om.id) + ')">Proposta</button>' +
+          '</div>' +
+        '</article>';
+      }
+      return mobileHtml + '</div>';
+    }
+    var html = '<div class="pending-table-wrap"><table class="pending-table"><thead><tr>' +
+      '<th>ID</th><th>Cliente</th><th>Servi&ccedil;o</th><th>Data</th><th>Valor</th><th>A&ccedil;&otilde;es</th>' +
+      '</tr></thead><tbody>';
     for (var i = 0; i < lista.length; i++) {
       var o = lista[i];
-      html += '<div class="pending-card pending-budget">' +
-        '<div class="pending-card-head"><div><strong>' + JW.escapeHTML(o.id) + '</strong><span>' + JW.escapeHTML(o.cliente) + '</span></div><i class="fas fa-file-invoice-dollar"></i></div>' +
-        '<div class="pending-card-body">' +
-          '<p class="text-muted">' + JW.escapeHTML(o.tipoServico || "") + ' | ' + JW.escapeHTML(o.email || "") + '</p>' +
-          '<p>' + JW.escapeHTML(o.descricao || "") + '</p>' +
-          '<div class="pending-meta"><span>Telefone: ' + JW.escapeHTML(o.telefone || "-") + '</span><span>Data: ' + JW.escapeHTML(o.dataSolicitacao || "-") + '</span><span>Valor: ' + JW.escapeHTML(o.valor || "Aguardando") + '</span></div>' +
-          (o.observacoes ? '<div class="history-note">' + JW.escapeHTML(o.observacoes) + '</div>' : '') +
-          (o.arquivoURL || o.imagemURL ? '<button class="btn btn-sm btn-secondary" onclick="window.open(' + JW.attrJs(o.arquivoURL || o.imagemURL) + ', ' + JW.attrJs("_blank") + ')"><i class="fas fa-paperclip"></i> Ver anexo</button>' : '') +
-        '</div>' +
-        '<div class="pending-actions">' +
+      html += '<tr>' +
+        '<td><strong>' + JW.escapeHTML(o.id) + '</strong></td>' +
+        '<td><div class="pending-table-primary">' + JW.escapeHTML(o.cliente || "-") + '</div><div class="pending-table-secondary">' + JW.escapeHTML(o.email || "-") + '</div></td>' +
+        '<td><div class="pending-table-primary">' + JW.escapeHTML(o.tipoServico || "-") + '</div><div class="pending-table-secondary">' + JW.escapeHTML(o.telefone || "-") + '</div></td>' +
+        '<td>' + JW.escapeHTML(o.dataSolicitacao || "-") + '</td>' +
+        '<td>' + JW.escapeHTML(o.valor || "Aguardando") + '</td>' +
+        '<td><div class="pending-table-actions">' +
+          '<button class="btn btn-sm btn-secondary" onclick="JW.abrirDetalhesOrcamentoPendente(' + JW.attrJs(o.id) + ')">Detalhes</button>' +
           '<button class="btn btn-sm btn-primary" onclick="JW.abrirModalPropostaOrcamento(' + JW.attrJs(o.id) + ')">Proposta</button>' +
-          '<button class="btn btn-sm btn-secondary" onclick="JW.abrirConcluirSemCobrar(' + JW.attrJs(o.id) + ')">Concluir sem cobrar</button>' +
-        '</div>' +
-      '</div>';
+        '</div></td>' +
+      '</tr>';
     }
-    return html + '</div>';
+    return html + '</tbody></table></div>';
+  };
+
+  JW.abrirDetalhesOrcamentoPendente = function(id) {
+    var item = null;
+    for (var i = 0; i < JW.orcamentosPendentesCache.length; i++) {
+      if (String((JW.orcamentosPendentesCache[i] || {}).id) === String(id)) {
+        item = JW.orcamentosPendentesCache[i];
+        break;
+      }
+    }
+    if (!item) return;
+    JW.abrirModalSistema(
+      '<i class="fas fa-file-invoice-dollar"></i> Detalhes do or&ccedil;amento',
+      '<div class="notification-detail">' +
+        '<div class="mini-summary-grid">' +
+          '<div><span>ID</span><strong>' + JW.escapeHTML(item.id || "-") + '</strong></div>' +
+          '<div><span>CLIENTE</span><strong>' + JW.escapeHTML(item.cliente || "-") + '</strong></div>' +
+          '<div><span>DATA</span><strong>' + JW.escapeHTML(item.dataSolicitacao || "-") + '</strong></div>' +
+          '<div><span>VALOR</span><strong>' + JW.escapeHTML(item.valor || "Aguardando") + '</strong></div>' +
+        '</div>' +
+        '<div class="history-note" style="margin-top:1rem;"><strong>SERVI&Ccedil;O</strong><br>' + JW.escapeHTML(item.tipoServico || "-") + '</div>' +
+        '<div class="history-note" style="margin-top:.75rem;white-space:pre-wrap;"><strong>DESCRI&Ccedil;&Atilde;O</strong><br>' + JW.escapeHTML(item.descricao || "-") + '</div>' +
+        (item.observacoes ? '<div class="history-note" style="margin-top:.75rem;white-space:pre-wrap;"><strong>OBSERVA&Ccedil;&Otilde;ES</strong><br>' + JW.escapeHTML(item.observacoes) + '</div>' : '') +
+      '</div>',
+      '<div class="modal-actions">' +
+        ((item.arquivoURL || item.imagemURL) ? '<button class="btn btn-secondary" onclick="window.open(' + JW.attrJs(item.arquivoURL || item.imagemURL) + ', ' + JW.attrJs("_blank") + ')"><i class="fas fa-paperclip"></i> Ver anexo</button>' : '') +
+        '<button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Fechar</button>' +
+      '</div>'
+    );
   };
 
   JW.abrirModalPropostaOrcamento = function(id) {
@@ -1186,7 +1831,8 @@
       '<i class="fas fa-file-invoice-dollar"></i> Enviar proposta',
       '<input type="hidden" id="orcamentoPropostaId" value="' + JW.escapeAttr(id) + '">' +
       '<div class="form-group"><label class="form-label">Valor da proposta</label><input id="orcamentoPropostaValor" class="form-input" inputmode="decimal" placeholder="R$ 0,00" oninput="JW.formatarCampoMoeda(this)"></div>' +
-      '<div class="form-group"><label class="form-label">Observacoes</label><textarea id="orcamentoPropostaObs" class="form-input" rows="3"></textarea></div>',
+      '<div class="text-muted" style="margin-top:-.35rem;margin-bottom:.85rem;">Use valor zero se quiser concluir sem cobrança.</div>' +
+      '<div class="form-group"><label class="form-label">Observações</label><textarea id="orcamentoPropostaObs" class="form-input" rows="3"></textarea></div>',
       '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;"><button class="btn btn-primary" onclick="JW.confirmarPropostaOrcamento()">Enviar proposta</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
     );
   };
@@ -1201,30 +1847,17 @@
     var id = (document.getElementById("orcamentoPropostaId") || {}).value || "";
     var valor = (document.getElementById("orcamentoPropostaValor") || {}).value || "";
     var obs = (document.getElementById("orcamentoPropostaObs") || {}).value || "";
-    if (JW.numero(valor) <= 0) {
-      JW.toast("Informe um valor valido para a proposta.", "error");
+    if (JW.numero(valor) < 0) {
+      JW.toast("Informe um valor válido para a proposta.", "error");
       return;
     }
     JW.fecharModalSistema();
-    await JW.atualizarOrcamentoAdmin(id, valor, "Em Negocia\u00e7\u00e3o", obs);
-  };
-
-  JW.abrirConcluirSemCobrar = function(id) {
-    JW.abrirModalSistema(
-      '<i class="fas fa-check-circle"></i> Concluir sem cobrar',
-      '<p>Voce quer realmente aceitar/concluir esta solicitacao sem cobrar o servico?</p><input type="hidden" id="orcamentoSemCobrancaId" value="' + JW.escapeAttr(id) + '">',
-      '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;"><button class="btn btn-primary" onclick="JW.confirmarConcluirSemCobrar()">Sim, concluir sem cobrar</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
-    );
-  };
-
-  JW.confirmarConcluirSemCobrar = async function() {
-    var id = (document.getElementById("orcamentoSemCobrancaId") || {}).value || "";
-    JW.fecharModalSistema();
-    await JW.atualizarOrcamentoAdmin(id, "", "Concluido", "Concluido sem cobranca pelo admin");
+    if (JW.numero(valor) === 0) await JW.atualizarOrcamentoAdmin(id, "0", "Concluido", obs || "Concluído sem cobrança.");
+    else await JW.atualizarOrcamentoAdmin(id, valor, "Em Negociação", obs);
   };
 
   JW.atualizarOrcamentoAdmin = async function(id, valor, status, obs) {
-    JW.mostrarLoading("Atualizando orcamento...");
+    JW.mostrarLoading("Atualizando orçamento...");
     try {
       var valorNormalizado = valor;
       if (valorNormalizado !== null && valorNormalizado !== undefined && valorNormalizado !== "") {
@@ -1233,39 +1866,90 @@
       }
       var resultado = await JW.chamarGoogleScript("aprovarOrcamento", id, valorNormalizado, status, obs);
       JW.esconderLoading();
-      JW.toast(resultado && resultado.message ? resultado.message : "Orcamento atualizado.", resultado && resultado.success ? "success" : "error");
+      JW.toast(resultado && resultado.message ? resultado.message : "Orçamento atualizado.", resultado && resultado.success ? "success" : "error");
       if (resultado && resultado.success) await JW.carregarPendencias();
     } catch (error) {
       JW.esconderLoading();
-      JW.toast("Erro ao atualizar orcamento: " + (error.message || error), "error");
+      JW.toast("Erro ao atualizar orçamento: " + (error.message || error), "error");
     }
   };
 
   JW.renderComprasAdmin = function(lista) {
     if (!lista || !lista.length) return '<p class="text-muted">Nenhuma compra pendente.</p>';
-    var html = '<div class="pending-grid pending-compras">';
+    if (JW.isMobileLayout()) {
+      var mobileHtml = '<div class="pending-mobile-list">';
+      for (var m = 0; m < lista.length; m++) {
+        var cm = lista[m];
+        var resumoProduto = (cm.produtosLista || []).map(function(p) { return p.nome || "Produto"; }).join(", ");
+        mobileHtml += '<article class="pending-mobile-card">' +
+          '<div class="pending-mobile-copy"><strong>' + JW.escapeHTML(cm.cliente || "-") + '</strong><span>' + JW.escapeHTML(JW.resumirTexto(resumoProduto || "Produto não identificado", 58)) + '</span></div>' +
+          '<div class="pending-mobile-actions">' +
+            '<button class="btn btn-sm btn-secondary" onclick="JW.abrirDetalhesCompraPendente(' + JW.attrJs(cm.id) + ')">Detalhes</button>' +
+            '<button class="btn btn-sm btn-primary" onclick="JW.atualizarStatusCompraAdmin(' + JW.attrJs(cm.id) + ', ' + JW.attrJs("Saiu para entrega") + ')">Entrega</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="JW.abrirCancelarCompra(' + JW.attrJs(cm.id) + ')">Cancelar</button>' +
+          '</div>' +
+        '</article>';
+      }
+      return mobileHtml + '</div>';
+    }
+    var html = '<div class="pending-table-wrap"><table class="pending-table"><thead><tr>' +
+      '<th>ID</th><th>Cliente</th><th>Produtos</th><th>Pagamento</th><th>Valor</th><th>Ações</th>' +
+      '</tr></thead><tbody>';
     for (var i = 0; i < lista.length; i++) {
       var c = lista[i];
-      html += '<div class="pending-card pending-purchase">' +
-        '<div class="pending-card-head"><div><strong>' + JW.escapeHTML(c.id) + '</strong><span>' + JW.escapeHTML(c.cliente) + '</span></div><i class="fas fa-shopping-cart"></i></div>' +
-        '<div class="pending-products">' + JW.renderProdutosCompraAdmin(c.produtosLista || []) + '</div>' +
-        '<div class="pending-card-body">' +
-          '<p class="text-muted">' + JW.escapeHTML(c.email || "") + ' | ' + JW.escapeHTML(c.dataCompra || "") + '</p>' +
-          '<div class="pending-meta"><span>Quantidade: ' + JW.escapeHTML(c.quantidadeTotal || 0) + '</span><span>Valor: ' + JW.escapeHTML(c.valorTotalFormatado || JW.formatarMoeda(c.valorTotal || 0)) + '</span><span>Pagamento: ' + JW.escapeHTML(c.statusPagamento || "Pendente") + '</span></div>' +
-          (c.observacoesAdmin ? '<div class="history-note">' + JW.escapeHTML(c.observacoesAdmin) + '</div>' : '') +
-        '</div>' +
-        '<div class="pending-actions">' +
-          '<button class="btn btn-sm btn-primary" onclick="JW.atualizarStatusCompraAdmin(' + JW.attrJs(c.id) + ', ' + JW.attrJs("Em transito") + ')">Em transito</button>' +
+      var resumoProdutos = (c.produtosLista || []).map(function(p) {
+        return (p.nome || "Produto") + " x" + (p.quantidade || 1);
+      }).join(", ");
+      html += '<tr>' +
+        '<td><strong>' + JW.escapeHTML(c.id) + '</strong></td>' +
+        '<td><div class="pending-table-primary">' + JW.escapeHTML(c.cliente || "-") + '</div><div class="pending-table-secondary">' + JW.escapeHTML(c.email || "-") + '</div></td>' +
+        '<td><div class="pending-table-primary">' + JW.escapeHTML(resumoProdutos || "Produto não identificado") + '</div><div class="pending-table-secondary">Qtd. total: ' + JW.escapeHTML(c.quantidadeTotal || 0) + '</div></td>' +
+        '<td>' + JW.escapeHTML(c.statusPagamento || "Pendente") + '</td>' +
+        '<td>' + JW.escapeHTML(c.valorTotalFormatado || JW.formatarMoeda(c.valorTotal || 0)) + '</td>' +
+        '<td><div class="pending-table-actions">' +
+          '<button class="btn btn-sm btn-secondary" onclick="JW.abrirDetalhesCompraPendente(' + JW.attrJs(c.id) + ')">Detalhes</button>' +
+          '<button class="btn btn-sm btn-primary" onclick="JW.atualizarStatusCompraAdmin(' + JW.attrJs(c.id) + ', ' + JW.attrJs("Saiu para entrega") + ')">Saiu para entrega</button>' +
           '<button class="btn btn-sm btn-success" onclick="JW.atualizarStatusCompraAdmin(' + JW.attrJs(c.id) + ', ' + JW.attrJs("Entregue") + ')">Entregue</button>' +
           '<button class="btn btn-sm btn-danger" onclick="JW.abrirCancelarCompra(' + JW.attrJs(c.id) + ')">Cancelar</button>' +
-        '</div>' +
-      '</div>';
+        '</div></td>' +
+      '</tr>';
     }
-    return html + '</div>';
+    return html + '</tbody></table></div>';
+  };
+
+  JW.abrirDetalhesCompraPendente = function(id) {
+    var item = null;
+    for (var i = 0; i < JW.comprasPendentesCache.length; i++) {
+      if (String((JW.comprasPendentesCache[i] || {}).id) === String(id)) {
+        item = JW.comprasPendentesCache[i];
+        break;
+      }
+    }
+    if (!item) return;
+    var produtos = (item.produtosLista || []).map(function(produto) {
+      return '<li>' + JW.escapeHTML(produto.nome || "Produto") + ' x' + JW.escapeHTML(produto.quantidade || 1) + '</li>';
+    }).join("");
+    JW.abrirModalSistema(
+      '<i class="fas fa-shopping-cart"></i> Detalhes da compra',
+      '<div class="notification-detail">' +
+        '<div class="mini-summary-grid">' +
+          '<div><span>ID</span><strong>' + JW.escapeHTML(item.id || "-") + '</strong></div>' +
+          '<div><span>CLIENTE</span><strong>' + JW.escapeHTML(item.cliente || "-") + '</strong></div>' +
+          '<div><span>PRODUTOS</span><strong>' + JW.escapeHTML((item.produtosLista || []).length || 0) + '</strong></div>' +
+          '<div><span>PAGAMENTO</span><strong>' + JW.escapeHTML(item.statusPagamento || "Pendente") + '</strong></div>' +
+          '<div><span>VALOR</span><strong>' + JW.escapeHTML(item.valorTotalFormatado || JW.formatarMoeda(item.valorTotal || 0)) + '</strong></div>' +
+          '<div><span>STATUS</span><strong>' + JW.escapeHTML(item.statusEntrega || "Pendente") + '</strong></div>' +
+        '</div>' +
+        '<div class="history-note" style="margin-top:1rem;"><strong>PRODUTOS</strong><ul style="margin:.5rem 0 0 1rem;">' + (produtos || '<li>Produto não identificado</li>') + '</ul></div>' +
+        '<div class="history-note" style="margin-top:.75rem;"><strong>PAGAMENTO</strong><br>' + JW.escapeHTML(item.statusPagamento || "Pendente") + '</div>' +
+        (item.observacoesAdmin ? '<div class="history-note" style="margin-top:.75rem;white-space:pre-wrap;"><strong>OBSERVAÇÕES</strong><br>' + JW.escapeHTML(item.observacoesAdmin) + '</div>' : '') +
+      '</div>',
+      '<div class="modal-actions"><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Fechar</button></div>'
+    );
   };
 
   JW.renderProdutosCompraAdmin = function(produtos) {
-    if (!produtos || !produtos.length) return '<p class="text-muted">Produto nao identificado.</p>';
+    if (!produtos || !produtos.length) return '<p class="text-muted">Produto não identificado.</p>';
     var html = "";
     for (var i = 0; i < produtos.length; i++) {
       var p = produtos[i];
@@ -1308,14 +1992,19 @@
   };
 
   JW.carregarRelatorios = async function() {
-    JW.setTitulo("Relatorios");
+    JW.setTitulo("Relatórios");
     if (!JW.isAdmin()) {
       JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
       return;
     }
 
     var r = await JW.chamarGoogleScript("getRelatoriosAdminV3");
+    var financeiro = await JW.chamarGoogleScript("getFinanceiroAdminV3").catch(function() {
+      return null;
+    });
     JW.relatorioDados = r || {};
+    JW.relatorioFinanceiroDados = financeiro && financeiro.success ? financeiro : null;
+    if (JW.relatorioFinanceiroDados) JW.financeiroDados = JW.relatorioFinanceiroDados;
     JW.renderRelatorios("");
   };
 
@@ -1325,28 +2014,22 @@
     JW.relatorioSelecionado = detalhe;
     var r = JW.relatorioDados || {};
     var receber = r.aReceber || { totalFormatado: JW.formatarMoeda(0) };
+    var financeiroResumo = JW.relatorioFinanceiroDados && JW.relatorioFinanceiroDados.resumo ? JW.relatorioFinanceiroDados.resumo : {};
     var html =
       '<div class="report-page" onclick="JW.renderRelatorios(' + JW.attrJs("") + ')">' +
       '<section class="page-hero reports-hero" onclick="event.stopPropagation()">' +
-        '<h2>Relatorios</h2>' +
-        '<p class="text-muted">Resumo operacional, financeiro e atendimento agrupado em uma so visao.</p>' +
+        '<h2>Relatórios</h2>' +
       '</section>' +
       '<div class="report-action-grid" onclick="event.stopPropagation()">' +
         JW.cardRelatorio("Clientes", r.totalClientes || 0, "clientes", detalhe, "report-clientes") +
-        JW.cardRelatorio("Orcamentos pendentes", r.orcamentosPendentes || 0, "orcamentos", detalhe, "report-orcamentos") +
-        JW.cardRelatorio("Compras pendentes", r.comprasPendentes || 0, "compras", detalhe, "report-compras") +
-        JW.cardRelatorio("Vendas", r.totalCompras || 0, "vendas", detalhe, "report-vendas") +
+        JW.cardRelatorio("Orcamentos", r.orcamentosPendentes || 0, "orcamentos", detalhe, "report-orcamentos") +
+        JW.cardRelatorio("Compras", r.totalCompras || 0, "compras", detalhe, "report-compras") +
+        JW.cardRelatorio("Financeiro", financeiroResumo.totalCobrancasPendentes || 0, "financeiro", detalhe, "report-financeiro") +
+        JW.cardRelatorio("Resumo", receber.totalFormatado || JW.formatarMoeda(receber.total || 0), "resumo", detalhe, "report-resumo") +
       '</div>' +
       JW.renderGraficosRelatorio(r, detalhe) +
       (detalhe ? '<div class="card report-detail-card ' + JW.escapeAttr("detail-" + detalhe) + '" onclick="event.stopPropagation()"><h3>Detalhes</h3><div id="relatorioDetalhe">' + JW.renderDetalheRelatorio(detalhe) + '</div></div>' : '') +
-      '<div class="card"><h3>Resumo</h3>' +
-        '<div class="dashboard-stats">' +
-          JW.cardMetrica("Total de orcamentos", r.totalOrcamentos || 0, "fas fa-file-invoice-dollar", "", "metric-static") +
-          JW.cardMetrica("Total de compras", r.totalCompras || 0, "fas fa-shopping-cart", "", "metric-static") +
-          JW.cardMetrica("Administradores ativos", r.totalAdmins || 0, "fas fa-user-shield", "", "metric-static") +
-          JW.cardMetrica("A receber", receber.totalFormatado || JW.formatarMoeda(receber.total || 0), "fas fa-money-bill-wave", "", "metric-static") +
-        '</div>' +
-      '</div></div>';
+      '</div>';
     JW.renderMain(html);
   };
 
@@ -1356,6 +2039,10 @@
       '<div class="dashboard-card-value">' + JW.escapeHTML(valor) + '</div>' +
       '<div class="text-muted">' + JW.escapeHTML(titulo) + '</div>' +
     '</button>';
+  };
+
+  JW.abrirDetalheRelatorioMobile = function(chave) {
+    JW.renderRelatorios(chave);
   };
 
   JW.renderGraficosRelatorio = function(r, detalhe) {
@@ -1396,18 +2083,79 @@
         '<div class="analytics-panel"><h3>Pedidos registrados</h3><div class="bar-line"><span>Compras</span><div><b style="width:100%"></b></div><strong>' + (r.totalCompras || 0) + '</strong></div><div class="bar-line"><span>Pendentes</span><div><b style="width:' + compPendPct + '%"></b></div><strong>' + (r.comprasPendentes || 0) + '</strong></div></div>' +
       '</div>';
     }
-    return '<div class="report-charts">' +
-      '<div class="analytics-panel"><h3>Distribuicao de pendencias</h3><div class="pie-row"><div class="css-pie" style="background:conic-gradient(#2563eb 0 ' + orcPct + '%, #f97316 ' + orcPct + '% 100%);"></div><div class="chart-legend"><span><i style="background:#2563eb"></i>Orcamentos</span><span><i style="background:#f97316"></i>Compras</span></div></div></div>' +
-      '<div class="analytics-panel"><h3>Financeiro</h3><div class="bar-line"><span>Vendas</span><div><b style="width:' + Math.round((vendas / max) * 100) + '%"></b></div><strong>' + JW.formatarMoeda(vendas) + '</strong></div><div class="bar-line"><span>A receber</span><div><b style="width:' + Math.round((receber / max) * 100) + '%"></b></div><strong>' + JW.formatarMoeda(receber) + '</strong></div></div>' +
-    '</div>';
+    if (detalhe === "financeiro") {
+      var resumo = JW.relatorioFinanceiroDados && JW.relatorioFinanceiroDados.resumo ? JW.relatorioFinanceiroDados.resumo : {};
+      var clientesComLancamento = resumo.totalClientesComLancamento || 0;
+      var cobrancasPendentes = resumo.totalCobrancasPendentes || 0;
+      var mensalidades = resumo.totalMensalidades || 0;
+      var baseClientes = Math.max(resumo.totalClientes || 0, 1);
+      return '<div class="report-charts">' +
+        '<div class="analytics-panel"><h3>Cobranca em aberto</h3><div class="bar-line"><span>A receber</span><div><b style="width:100%"></b></div><strong>' + JW.escapeHTML(resumo.valorAbertoFormatado || JW.formatarMoeda(0)) + '</strong></div><div class="bar-line"><span>Cobrancas</span><div><b style="width:' + Math.max(18, Math.min(100, cobrancasPendentes * 12)) + '%"></b></div><strong>' + cobrancasPendentes + '</strong></div></div>' +
+        '<div class="analytics-panel"><h3>Base financeira</h3><div class="bar-line"><span>Clientes ativos</span><div><b style="width:' + Math.round((clientesComLancamento / baseClientes) * 100) + '%"></b></div><strong>' + clientesComLancamento + '</strong></div><div class="bar-line"><span>Mensalidades</span><div><b style="width:' + Math.max(18, Math.min(100, mensalidades * 14)) + '%"></b></div><strong>' + mensalidades + '</strong></div></div>' +
+      '</div>';
+    }
+    return '';
+  };
+
+  JW.renderRelatorioListaCompacta = function(lista, renderItem, vazio) {
+    if (!lista || !lista.length) return '<p class="text-muted">' + JW.escapeHTML(vazio || "Nenhum registro encontrado.") + '</p>';
+    var html = '<div class="report-detail-stack">';
+    for (var i = 0; i < lista.length; i++) html += renderItem(lista[i] || {}, i);
+    return html + '</div>';
   };
 
   JW.renderDetalheRelatorio = function(chave) {
     var r = JW.relatorioDados || {};
-    if (chave === "clientes") return JW.renderTabelaSimples(r.clientes || [], ["usuario", "email", "telefone", "bairro", "endereco", "status"]);
-    if (chave === "orcamentos") return JW.renderTabelaSimples(r.orcamentosPendentesLista || [], ["id", "cliente", "tipoServico", "status", "valor"]);
-    if (chave === "compras") return JW.renderTabelaSimples(r.comprasPendentesLista || [], ["id", "cliente", "valorTotalFormatado", "statusEntrega"]);
-    if (chave === "vendas") return JW.renderTabelaSimples(r.vendas || [], ["id", "cliente", "valorTotalFormatado", "statusPagamento", "statusEntrega"]);
+    if (chave === "clientes") {
+      return JW.renderRelatorioListaCompacta(r.clientes || [], function(item) {
+        return '<article class="report-detail-item">' +
+          '<strong>' + JW.escapeHTML(item.usuario || "Cliente") + '</strong>' +
+          '<div class="text-muted">' + JW.escapeHTML(item.telefone || "Telefone nao informado") + '</div>' +
+        '</article>';
+      }, "Nenhum cliente encontrado.");
+    }
+    if (chave === "orcamentos") {
+      return JW.renderRelatorioListaCompacta(r.orcamentosPendentesLista || [], function(item) {
+        return '<article class="report-detail-item tone-orcamento">' +
+          '<strong>' + JW.escapeHTML(item.cliente || "-") + '</strong>' +
+          '<div class="text-muted">' + JW.escapeHTML(item.tipoServico || "-") + '</div>' +
+          '<div class="text-muted">' + JW.escapeHTML(item.valor || "Aguardando") + '</div>' +
+        '</article>';
+      }, "Nenhum orcamento pendente.");
+    }
+    if (chave === "compras") {
+      return JW.renderRelatorioListaCompacta(r.comprasPendentesLista || [], function(item) {
+        return '<article class="report-detail-item tone-compra">' +
+          '<strong>' + JW.escapeHTML(item.cliente || "-") + '</strong>' +
+          '<div class="text-muted">' + JW.escapeHTML(item.valorTotalFormatado || "-") + '</div>' +
+          '<div class="text-muted">' + JW.escapeHTML(item.statusEntrega || "Pendente") + '</div>' +
+        '</article>';
+      }, "Nenhuma compra encontrada.");
+    }
+    if (chave === "financeiro") {
+      var f = JW.relatorioFinanceiroDados || {};
+      var cobrancas = f.cobrancas || [];
+      return '<div class="report-finance-summary">' +
+        JW.renderFinanceiroResumo() +
+        '<div class="card" style="margin-top:1rem;"><h3>Cobrancas geradas</h3>' +
+          JW.renderRelatorioListaCompacta(cobrancas.slice(0, 10), function(item) {
+            return '<article class="report-detail-item tone-financeiro">' +
+              '<strong>' + JW.escapeHTML(item.clienteNome || item.clienteEmail || "Cliente") + '</strong>' +
+              '<div class="text-muted">' + JW.escapeHTML(item.competencia || "-") + ' | ' + JW.escapeHTML(JW.somenteData(item.vencimento || "-")) + '</div>' +
+              '<div class="text-muted">' + JW.escapeHTML(item.valorTotalFormatado || "-") + '</div>' +
+            '</article>';
+          }, "Nenhuma cobranca gerada.") +
+        '</div>' +
+      '</div>';
+    }
+    if (chave === "resumo") {
+      var receber = r.aReceber || { totalFormatado: JW.formatarMoeda(0), total: 0 };
+      return '<div class="dashboard-stats report-summary-cards">' +
+        JW.cardMetrica("Total de orcamentos", r.totalOrcamentos || 0, "fas fa-file-invoice-dollar", "", "metric-static") +
+        JW.cardMetrica("Total de compras", r.totalCompras || 0, "fas fa-shopping-cart", "", "metric-static") +
+        JW.cardMetrica("A receber", receber.totalFormatado || JW.formatarMoeda(receber.total || 0), "fas fa-money-bill-wave", "", "metric-static") +
+      '</div>';
+    }
     return '<p class="text-muted">Selecione um card acima.</p>';
   };
 
@@ -1446,44 +2194,870 @@
     return labels[campo] || campo;
   };
 
-  JW.carregarMensagensDiretas = async function() {
-    JW.setTitulo("Mensagens diretas");
+  JW.getCompetenciaAtualFinanceiro = function() {
+    var agora = new Date();
+    return ("0" + (agora.getMonth() + 1)).slice(-2) + "/" + agora.getFullYear();
+  };
+
+  JW.getDataFuturaFinanceiro = function(dias) {
+    var data = new Date(Date.now() + (dias || 0) * 24 * 60 * 60 * 1000);
+    return data.toLocaleDateString("pt-BR");
+  };
+
+  JW.getClientesFinanceiro = function() {
+    return JW.financeiroDados && JW.financeiroDados.clientes ? JW.financeiroDados.clientes : [];
+  };
+
+  JW.getItensFinanceiro = function() {
+    return JW.financeiroDados && JW.financeiroDados.itens ? JW.financeiroDados.itens : [];
+  };
+
+  JW.getMensalidadesFinanceiro = function() {
+    return JW.financeiroDados && JW.financeiroDados.mensalidades ? JW.financeiroDados.mensalidades : [];
+  };
+
+  JW.getLancamentosFinanceiro = function() {
+    return JW.financeiroDados && JW.financeiroDados.lancamentosAgrupados ? JW.financeiroDados.lancamentosAgrupados : [];
+  };
+
+  JW.getCobrancasFinanceiro = function() {
+    return JW.financeiroDados && JW.financeiroDados.cobrancas ? JW.financeiroDados.cobrancas : [];
+  };
+
+  JW.getWhatsAppAutomacaoFinanceiro = function() {
+    return JW.financeiroDados && JW.financeiroDados.whatsappAutomacao ? JW.financeiroDados.whatsappAutomacao : { ativo: false };
+  };
+
+  JW.buscarClienteFinanceiro = function(email) {
+    var clientes = JW.getClientesFinanceiro();
+    for (var i = 0; i < clientes.length; i++) {
+      if (String(clientes[i].email).toLowerCase() === String(email || "").toLowerCase()) return clientes[i];
+    }
+    return null;
+  };
+
+  JW.buscarItemFinanceiro = function(id) {
+    var itens = JW.getItensFinanceiro();
+    for (var i = 0; i < itens.length; i++) {
+      if (String(itens[i].id) === String(id)) return itens[i];
+    }
+    return null;
+  };
+
+  JW.renderOptionsClientesFinanceiro = function(selected) {
+    var clientes = JW.getClientesFinanceiro().slice();
+    clientes.sort(function(a, b) {
+      return String(a.usuario || a.email).localeCompare(String(b.usuario || b.email));
+    });
+    var html = '<option value="">Selecione...</option>';
+    for (var i = 0; i < clientes.length; i++) {
+      var cliente = clientes[i];
+      var label = (cliente.usuario || cliente.email) + (cliente.telefone ? " | " + cliente.telefone : "");
+      html += '<option value="' + JW.escapeAttr(cliente.email) + '"' + (selected === cliente.email ? " selected" : "") + '>' + JW.escapeHTML(label) + '</option>';
+    }
+    return html;
+  };
+
+  JW.renderOptionsItensFinanceiro = function(selected) {
+    var itens = JW.getItensFinanceiro().filter(function(item) { return item.ativo !== false; });
+    itens.sort(function(a, b) { return String(a.nome || "").localeCompare(String(b.nome || "")); });
+    var html = '<option value="">Sem item vinculado</option>';
+    for (var i = 0; i < itens.length; i++) {
+      var item = itens[i];
+      html += '<option value="' + JW.escapeAttr(item.id) + '"' + (selected === item.id ? " selected" : "") + '>' + JW.escapeHTML(item.nome + " | " + item.valorPadraoFormatado) + '</option>';
+    }
+    return html;
+  };
+
+  JW.carregarFinanceiro = async function() {
+    JW.setTitulo("Financeiro");
     if (!JW.isAdmin()) {
       JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
       return;
     }
 
-    var usarFirebaseChat = JW.iniciarFirebaseChat();
+    var dados = await JW.chamarGoogleScript("getFinanceiroAdminV3");
+    JW.financeiroDados = dados || {};
+    if (!dados || !dados.success) {
+      JW.renderMain('<div class="card"><h3>Financeiro indisponivel</h3><p class="text-muted">' + JW.escapeHTML((dados && dados.message) || "Nao foi possivel carregar o modulo.") + '</p></div>');
+      return;
+    }
+
+    JW.renderFinanceiro();
+  };
+
+  JW.renderFinanceiroResumo = function() {
+    var resumo = JW.financeiroDados && JW.financeiroDados.resumo ? JW.financeiroDados.resumo : {};
+    return '<div class="dashboard-stats">' +
+      JW.cardMetrica("Clientes", resumo.totalClientes || 0, "fas fa-users", "", "metric-static") +
+      JW.cardMetrica("Itens", resumo.totalItens || 0, "fas fa-boxes-stacked", "", "metric-static") +
+      JW.cardMetrica("Mensalidades", resumo.totalMensalidades || 0, "fas fa-repeat", "", "metric-static") +
+      JW.cardMetrica("Clientes com lancamentos", resumo.totalClientesComLancamento || 0, "fas fa-file-circle-plus", "", "metric-static") +
+      JW.cardMetrica("Cobrancas pendentes", resumo.totalCobrancasPendentes || 0, "fas fa-file-invoice-dollar", "", "metric-static") +
+      JW.cardMetrica("A receber", resumo.valorAbertoFormatado || JW.formatarMoeda(0), "fas fa-money-bill-wave", "", "metric-static") +
+    '</div>';
+  };
+
+  JW.aplicarBuscaFinanceiro = function(valor) {
+    JW.financeiroBusca = String(valor || "").trim();
+    JW.renderFinanceiro();
+  };
+
+  JW.limparBuscaFinanceiro = function() {
+    JW.financeiroBusca = "";
+    JW.renderFinanceiro();
+  };
+
+  JW.setAbaFinanceiro = function(aba) {
+    JW.financeiroView = aba || "pendencias";
+    JW.renderFinanceiro();
+  };
+
+  JW.getBuscaFinanceiro = function() {
+    return String(JW.financeiroBusca || "").toLowerCase().trim();
+  };
+
+  JW.buscarEmCamposFinanceiro = function(campos) {
+    var busca = JW.getBuscaFinanceiro();
+    if (!busca) return true;
+    var texto = (campos || []).join(" ").toLowerCase();
+    return texto.indexOf(busca) !== -1;
+  };
+
+  JW.getItensFinanceiroFiltrados = function() {
+    return JW.getItensFinanceiro().filter(function(item) {
+      return JW.buscarEmCamposFinanceiro([
+        item.nome || "",
+        item.categoria || "",
+        item.tipoUso || "",
+        item.descricao || ""
+      ]);
+    });
+  };
+
+  JW.getLancamentosFinanceiroFiltrados = function() {
+    return JW.getLancamentosFinanceiro().filter(function(grupo) {
+      var descricoes = [];
+      for (var i = 0; i < (grupo.itens || []).length; i++) {
+        var item = grupo.itens[i];
+        descricoes.push(item.descricao || item.itemNome || item.tipoLancamento || "");
+      }
+      return JW.buscarEmCamposFinanceiro([
+        grupo.clienteNome || "",
+        grupo.clienteEmail || "",
+        grupo.telefone || "",
+        descricoes.join(" ")
+      ]);
+    });
+  };
+
+  JW.getMensalidadesFinanceiroFiltradas = function() {
+    return JW.getMensalidadesFinanceiro().filter(function(item) {
+      return JW.buscarEmCamposFinanceiro([
+        item.clienteNome || "",
+        item.clienteEmail || "",
+        item.descricao || "",
+        item.status || ""
+      ]);
+    });
+  };
+
+  JW.getCobrancasFinanceiroFiltradas = function() {
+    return JW.getCobrancasFinanceiro().filter(function(item) {
+      return JW.buscarEmCamposFinanceiro([
+        item.id || "",
+        item.clienteNome || "",
+        item.clienteEmail || "",
+        item.competencia || "",
+        item.referencia || "",
+        item.status || ""
+      ]);
+    });
+  };
+
+  JW.classeStatusCobrancaFinanceiro = function(status) {
+    var texto = String(status || "").toLowerCase();
+    if (texto.indexOf("pago") !== -1) return "badge-success";
+    if (texto.indexOf("cancel") !== -1) return "badge-danger";
+    if (texto.indexOf("envi") !== -1) return "badge-info";
+    return "badge-warning";
+  };
+
+  JW.renderItensFinanceiroLista = function() {
+    var itens = JW.getItensFinanceiroFiltrados();
+    if (!itens.length) return '<p class="text-muted">Nenhum item encontrado.</p>';
+
+    var html = '<div class="financeiro-scroll-area">';
+    for (var i = 0; i < itens.length; i++) {
+      var item = itens[i];
+      html += '<article class="financeiro-row-card">' +
+        '<div class="financeiro-row-main">' +
+          '<strong>' + JW.escapeHTML(item.nome) + '</strong>' +
+          '<div class="text-muted">' + JW.escapeHTML(item.categoria || "Geral") + ' | ' + JW.escapeHTML(item.unidade || "un") + ' | ' + JW.escapeHTML(item.tipoUso || "Financeiro") + '</div>' +
+          (item.descricao ? '<div class="text-muted">' + JW.escapeHTML(item.descricao) + '</div>' : '') +
+        '</div>' +
+        '<div class="financeiro-row-side">' +
+          '<span class="badge ' + (item.ativo ? 'badge-success' : 'badge-warning') + '">' + JW.escapeHTML(item.ativo ? "Ativo" : "Inativo") + '</span>' +
+          '<strong>' + JW.escapeHTML(item.valorPadraoFormatado) + '</strong>' +
+        '</div>' +
+      '</article>';
+    }
+    return html + '</div>';
+  };
+
+  JW.renderLancamentosFinanceiroLista = function() {
+    var grupos = JW.getLancamentosFinanceiroFiltrados();
+    if (!grupos.length) return '<p class="text-muted">Nenhum lançamento em aberto encontrado.</p>';
+
+    var html = '<div class="financeiro-scroll-area">';
+    for (var i = 0; i < grupos.length; i++) {
+      var grupo = grupos[i];
+      var preview = [];
+      var previewMap = {};
+      for (var j = 0; j < Math.min((grupo.itens || []).length, 3); j++) {
+        var textoPreview = grupo.itens[j].descricao || grupo.itens[j].itemNome || grupo.itens[j].tipoLancamento || "Lancamento";
+        var chavePreview = JW.normalizarTextoComparacao(textoPreview);
+        if (!previewMap[chavePreview]) {
+          previewMap[chavePreview] = true;
+          preview.push(textoPreview);
+        }
+      }
+      var competencias = (grupo.competenciasLista || []).map(function(itemCompetencia) {
+        return JW.somenteData(itemCompetencia || "") || itemCompetencia || "-";
+      });
+      html += '<article class="financeiro-row-card">' +
+        '<div class="financeiro-row-main">' +
+          '<strong>' + JW.escapeHTML(grupo.clienteNome || grupo.clienteEmail) + '</strong>' +
+          '<div class="text-muted">' + JW.escapeHTML((grupo.itens || []).length) + ' lancamento(s) | Competencias: ' + JW.escapeHTML(competencias.join(", ") || "-") + '</div>' +
+          '<div class="text-muted">' + JW.escapeHTML(preview.join(" • ")) + ((grupo.itens || []).length > 3 ? " ..." : "") + '</div>' +
+        '</div>' +
+        '<div class="financeiro-row-side">' +
+          '<span class="badge badge-warning">Em aberto</span>' +
+          '<strong>' + JW.escapeHTML(grupo.totalAbertoFormatado) + '</strong>' +
+          '<div class="financeiro-row-actions">' +
+            '<button class="btn btn-sm btn-secondary" onclick="JW.abrirResumoLancamentosFinanceiro(' + JW.attrJs(grupo.clienteEmail) + ')">Ver itens</button>' +
+            '<button class="btn btn-sm btn-primary" onclick="JW.abrirGerarCobrancaFinanceiro(' + JW.attrJs(grupo.clienteEmail) + ')"><i class="fas fa-file-invoice-dollar"></i> Gerar cobrança</button>' +
+          '</div>' +
+        '</div>' +
+      '</article>';
+    }
+    return html + '</div>';
+  };
+
+  JW.renderMensalidadesFinanceiroLista = function() {
+    var mensalidades = JW.getMensalidadesFinanceiroFiltradas();
+    if (!mensalidades.length) return '<p class="text-muted">Nenhuma mensalidade encontrada.</p>';
+
+    var html = '<div class="financeiro-scroll-area">';
+    for (var i = 0; i < mensalidades.length; i++) {
+      var mensalidade = mensalidades[i];
+      html += '<article class="financeiro-row-card">' +
+        '<div class="financeiro-row-main">' +
+          '<strong>' + JW.escapeHTML(mensalidade.clienteNome || mensalidade.clienteEmail) + '</strong>' +
+          '<div class="text-muted">' + JW.escapeHTML(mensalidade.descricao || "Mensalidade") + ' | Dia ' + JW.escapeHTML(mensalidade.diaVencimento || 10) + '</div>' +
+          (mensalidade.ultimaCompetenciaGerada ? '<div class="text-muted">Ultima competencia gerada: ' + JW.escapeHTML(JW.somenteData(mensalidade.ultimaCompetenciaGerada)) + '</div>' : '') +
+        '</div>' +
+        '<div class="financeiro-row-side">' +
+          '<span class="badge ' + (String(mensalidade.status || "Ativo").toLowerCase() === "ativo" ? 'badge-success' : 'badge-warning') + '">' + JW.escapeHTML(mensalidade.status || "Ativo") + '</span>' +
+          '<strong>' + JW.escapeHTML(mensalidade.valorFormatado || JW.formatarMoeda(mensalidade.valor || 0)) + '</strong>' +
+        '</div>' +
+      '</article>';
+    }
+    return html + '</div>';
+  };
+
+  JW.renderCobrancasFinanceiroLista = function() {
+    var cobrancas = JW.getCobrancasFinanceiroFiltradas();
+    var automacaoWhatsApp = JW.getWhatsAppAutomacaoFinanceiro();
+    if (!cobrancas.length) return '<p class="text-muted">Nenhuma cobrança encontrada.</p>';
+
+    var html = '<div class="financeiro-scroll-area">';
+    for (var i = 0; i < cobrancas.length; i++) {
+      var cobranca = cobrancas[i];
+      html += '<article class="financeiro-row-card">' +
+        '<div class="financeiro-row-main">' +
+          '<strong>' + JW.escapeHTML(cobranca.clienteNome || cobranca.clienteEmail) + '</strong>' +
+          '<div class="text-muted">' + JW.escapeHTML(cobranca.id) + ' | Vencimento: ' + JW.escapeHTML(JW.somenteData(cobranca.vencimento || "-")) + '</div>' +
+          '<div class="text-muted">' + JW.escapeHTML(cobranca.competencia || "-") + ' | ' + JW.escapeHTML(cobranca.quantidadeItens || 0) + ' item(ns)</div>' +
+        '</div>' +
+        '<div class="financeiro-row-side">' +
+          '<span class="badge ' + JW.classeStatusCobrancaFinanceiro(cobranca.status) + '">' + JW.escapeHTML(cobranca.status || "-") + '</span>' +
+          '<strong>' + JW.escapeHTML(cobranca.valorTotalFormatado || JW.formatarMoeda(cobranca.valorTotal || 0)) + '</strong>' +
+          '<div class="financeiro-row-actions">' +
+            '<button class="btn btn-sm btn-secondary" onclick="JW.abrirResumoCobrancaFinanceiro(' + JW.attrJs(cobranca.id) + ')">Ver itens</button>' +
+            '<button class="btn btn-sm btn-secondary" onclick="JW.abrirPdfCobrancaFinanceiro(' + JW.attrJs(cobranca.id) + ')"><i class="fas fa-file-pdf"></i> PDF</button>' +
+            (automacaoWhatsApp.ativo ? '<button class="btn btn-sm btn-whatsapp" onclick="JW.enviarCobrancaWhatsAppFinanceiro(' + JW.attrJs(cobranca.id) + ')"><i class="fab fa-whatsapp"></i> WhatsApp Auto</button>' : '') +
+            (cobranca.linkWhatsApp ? '<button class="btn btn-sm btn-whatsapp" onclick="JW.abrirWhatsAppCobrancaFinanceiro(' + JW.attrJs(cobranca.id) + ')"><i class="fab fa-whatsapp"></i> WhatsApp</button>' : '') +
+            '<button class="btn btn-sm btn-secondary" onclick="JW.marcarCobrancaFinanceiroEnviada(' + JW.attrJs(cobranca.id) + ')">Enviada</button>' +
+            '<button class="btn btn-sm btn-success" onclick="JW.abrirStatusCobrancaFinanceiro(' + JW.attrJs(cobranca.id) + ', ' + JW.attrJs("Pago") + ')">Paga</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="JW.abrirStatusCobrancaFinanceiro(' + JW.attrJs(cobranca.id) + ', ' + JW.attrJs("Cancelado") + ')">Cancelar</button>' +
+          '</div>' +
+        '</div>' +
+      '</article>';
+    }
+    return html + '</div>';
+  };
+
+  JW.renderAbasFinanceiro = function() {
+    var abas = [
+      { id: "pendencias", label: "Pendencias", icon: "fas fa-wallet" },
+      { id: "cobrancas", label: "Cobrancas", icon: "fas fa-file-invoice-dollar" },
+      { id: "mensalidades", label: "Mensalidades", icon: "fas fa-repeat" },
+      { id: "itens", label: "Itens", icon: "fas fa-boxes-stacked" }
+    ];
+    var html = '<div class="communication-tabs financeiro-tabs">';
+    for (var i = 0; i < abas.length; i++) {
+      var aba = abas[i];
+      html += '<button class="communication-tab finance-tab-' + JW.escapeAttr(aba.id) + ' ' + (JW.financeiroView === aba.id ? 'active' : '') + '" onclick="JW.setAbaFinanceiro(' + JW.attrJs(aba.id) + ')"><i class="' + JW.escapeAttr(aba.icon) + '"></i> ' + JW.escapeHTML(aba.label) + '</button>';
+    }
+    return html + '</div>';
+  };
+
+  JW.renderPainelFinanceiroAtual = function() {
+    var titulos = {
+      pendencias: "Clientes prontos para cobrar",
+      cobrancas: "Cobrancas geradas",
+      mensalidades: "Mensalidades cadastradas",
+      itens: "Itens de cobranca"
+    };
+
+    var contagens = {
+      pendencias: JW.getLancamentosFinanceiroFiltrados().length,
+      cobrancas: JW.getCobrancasFinanceiroFiltradas().length,
+      mensalidades: JW.getMensalidadesFinanceiroFiltradas().length,
+      itens: JW.getItensFinanceiroFiltrados().length
+    };
+
+    var corpo = "";
+    if (JW.financeiroView === "cobrancas") corpo = JW.renderCobrancasFinanceiroLista();
+    else if (JW.financeiroView === "mensalidades") corpo = JW.renderMensalidadesFinanceiroLista();
+    else if (JW.financeiroView === "itens") corpo = JW.renderItensFinanceiroLista();
+    else corpo = JW.renderLancamentosFinanceiroLista();
+
+    return '<div class="card financeiro-main-card financeiro-panel-' + JW.escapeAttr(JW.financeiroView || "pendencias") + '">' +
+      '<div class="financeiro-panel-header">' +
+        '<div><h3>' + JW.escapeHTML(titulos[JW.financeiroView] || "Financeiro") + '</h3><p class="text-muted">' + JW.escapeHTML(contagens[JW.financeiroView] || 0) + ' resultado(s)</p></div>' +
+      '</div>' +
+      corpo +
+    '</div>';
+  };
+
+  JW.renderFinanceiro = function() {
+    JW.renderMain(
+      '<div class="financeiro-shell">' +
+      '<div class="financeiro-toolbar">' +
+        '<div class="financeiro-toolbar-actions">' +
+          '<button class="btn btn-primary" onclick="JW.abrirItemFinanceiroModal()"><i class="fas fa-plus"></i> Novo item</button>' +
+          '<button class="btn btn-success" onclick="JW.abrirLancamentoFinanceiroModal()"><i class="fas fa-file-circle-plus"></i> Novo lancamento</button>' +
+          '<button class="btn btn-secondary" onclick="JW.abrirMensalidadeFinanceiroModal()"><i class="fas fa-repeat"></i> Nova mensalidade</button>' +
+          '<button class="btn btn-secondary" onclick="JW.abrirGerarMensalidadesFinanceiroModal()"><i class="fas fa-play"></i> Gerar mensalidades</button>' +
+        '</div>' +
+        '<div class="financeiro-toolbar-search">' +
+          '<input id="financeiroBuscaInput" class="form-input" value="' + JW.escapeAttr(JW.financeiroBusca || "") + '" placeholder="Buscar por cliente, item, competencia..." onkeydown="if(event.key===\'Enter\'){JW.aplicarBuscaFinanceiro(this.value)}">' +
+          '<button class="btn btn-secondary btn-filter-highlight" onclick="JW.aplicarBuscaFinanceiro((document.getElementById(\'financeiroBuscaInput\') || {}).value || \'\')">Filtrar</button>' +
+          (JW.financeiroBusca ? '<button class="btn btn-secondary" onclick="JW.limparBuscaFinanceiro()">Limpar</button>' : '') +
+        '</div>' +
+      '</div>' +
+      JW.renderAbasFinanceiro() +
+      JW.renderPainelFinanceiroAtual() +
+      '</div>'
+    );
+  };
+
+  JW.abrirItemFinanceiroModal = function() {
+    JW.financeiroItemImagem = null;
+    JW.abrirModalSistema(
+      '<i class="fas fa-boxes-stacked"></i> Novo item de cobran&ccedil;a',
+      '<div class="form-group"><label class="form-label">Nome do item</label><input id="financeiroItemNome" class="form-input" placeholder="Ex.: Cloro granulado 1kg"></div>' +
+      '<div class="form-group"><label class="form-label">Categoria</label><input id="financeiroItemCategoria" class="form-input" placeholder="Consumo, serviço, mensalidade..."></div>' +
+      '<div class="profile-edit-grid">' +
+        '<div class="form-group"><label class="form-label">Unidade</label><input id="financeiroItemUnidade" class="form-input" placeholder="un, kg, visita"></div>' +
+        '<div class="form-group"><label class="form-label">Valor padrão</label><input id="financeiroItemValor" class="form-input" inputmode="decimal" placeholder="R$ 0,00" oninput="JW.formatarCampoMoeda(this)"></div>' +
+      '</div>' +
+      '<div class="profile-edit-grid">' +
+        '<div class="form-group"><label class="form-label">Estoque inicial</label><input id="financeiroItemEstoque" class="form-input" type="number" min="0" step="1" value="0"></div>' +
+        '<div class="form-group"><label class="form-label">Imagem do produto</label><label class="file-picker-modern"><i class="fas fa-image"></i><span id="financeiroItemImagemLabel">Selecionar imagem</span><input id="financeiroItemImagem" type="file" accept="image/*" capture="environment" onchange="JW.selecionarImagemItemFinanceiro(this)"></label><div id="financeiroItemImagemPreview" class="attachment-preview product-image-upload-preview"></div></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Uso</label><select id="financeiroItemUso" class="form-input"><option value="Consumo">Consumo</option><option value="Servico">Serviço</option><option value="Mensalidade">Mensalidade</option><option value="Geral">Geral</option></select></div>' +
+      '<div class="form-group"><label class="form-label">Descrição</label><textarea id="financeiroItemDescricao" class="form-input" rows="3" placeholder="Informações extras"></textarea></div>' +
+      '<p class="text-muted">Ao salvar, o item tamb&eacute;m ser&aacute; cadastrado automaticamente na Loja.</p>',
+      '<div class="modal-actions"><button class="btn btn-primary" onclick="JW.salvarItemFinanceiro()"><i class="fas fa-plus"></i> Salvar item</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
+    );
+  };
+
+  JW.abrirLancamentoFinanceiroModal = function() {
+    JW.abrirModalSistema(
+      '<i class="fas fa-file-circle-plus"></i> Novo lançamento',
+      '<div class="form-group"><label class="form-label">Cliente</label><select id="financeiroLancamentoCliente" class="form-input">' + JW.renderOptionsClientesFinanceiro("") + '</select></div>' +
+      '<div class="profile-edit-grid">' +
+        '<div class="form-group"><label class="form-label">Tipo</label><select id="financeiroLancamentoTipo" class="form-input"><option value="Consumo">Consumo</option><option value="Servico">Serviço</option><option value="Mensalidade">Mensalidade</option></select></div>' +
+        '<div class="form-group"><label class="form-label">Item vinculado</label><select id="financeiroLancamentoItem" class="form-input" onchange="JW.preencherItemLancamentoFinanceiro()">' + JW.renderOptionsItensFinanceiro("") + '</select></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Descrição</label><input id="financeiroLancamentoDescricao" class="form-input" placeholder="Ex.: Aplicação de cloro"></div>' +
+      '<div class="profile-edit-grid">' +
+        '<div class="form-group"><label class="form-label">Quantidade</label><input id="financeiroLancamentoQuantidade" class="form-input" type="number" min="0.01" step="0.01" value="1"></div>' +
+        '<div class="form-group"><label class="form-label">Valor unitário</label><input id="financeiroLancamentoValor" class="form-input" inputmode="decimal" placeholder="R$ 0,00" oninput="JW.formatarCampoMoeda(this)"></div>' +
+      '</div>' +
+      '<div class="profile-edit-grid">' +
+        '<div class="form-group"><label class="form-label">Competência</label><input id="financeiroLancamentoCompetencia" class="form-input" value="' + JW.escapeAttr(JW.getCompetenciaAtualFinanceiro()) + '" placeholder="MM/AAAA"></div>' +
+        '<div class="form-group"><label class="form-label">Referência</label><input id="financeiroLancamentoReferencia" class="form-input" placeholder="Ex.: Maio/2026"></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Observações</label><textarea id="financeiroLancamentoObs" class="form-input" rows="3"></textarea></div>',
+      '<div class="modal-actions"><button class="btn btn-success" onclick="JW.registrarLancamentoFinanceiro()"><i class="fas fa-file-circle-plus"></i> Registrar</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
+    );
+  };
+
+  JW.abrirMensalidadeFinanceiroModal = function() {
+    JW.abrirModalSistema(
+      '<i class="fas fa-repeat"></i> Nova mensalidade',
+      '<div class="form-group"><label class="form-label">Cliente</label><select id="financeiroMensalidadeCliente" class="form-input">' + JW.renderOptionsClientesFinanceiro("") + '</select></div>' +
+      '<div class="form-group"><label class="form-label">Descrição</label><input id="financeiroMensalidadeDescricao" class="form-input" placeholder="Ex.: Manutenção mensal da piscina"></div>' +
+      '<div class="profile-edit-grid">' +
+        '<div class="form-group"><label class="form-label">Valor</label><input id="financeiroMensalidadeValor" class="form-input" inputmode="decimal" placeholder="R$ 0,00" oninput="JW.formatarCampoMoeda(this)"></div>' +
+        '<div class="form-group"><label class="form-label">Dia de vencimento</label><input id="financeiroMensalidadeDia" class="form-input" type="number" min="1" max="28" value="10"></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Observações</label><textarea id="financeiroMensalidadeObs" class="form-input" rows="3"></textarea></div>',
+      '<div class="modal-actions"><button class="btn btn-primary" onclick="JW.salvarMensalidadeFinanceiro()"><i class="fas fa-repeat"></i> Salvar mensalidade</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
+    );
+  };
+
+  JW.abrirGerarMensalidadesFinanceiroModal = function() {
+    JW.abrirModalSistema(
+      '<i class="fas fa-play"></i> Gerar mensalidades',
+      '<div class="form-group"><label class="form-label">Competência</label><input id="financeiroGerarCompetencia" class="form-input" value="' + JW.escapeAttr(JW.getCompetenciaAtualFinanceiro()) + '" placeholder="MM/AAAA"></div>' +
+      '<p class="text-muted">O sistema vai criar os lançamentos mensais que ainda não foram gerados para esse período.</p>',
+      '<div class="modal-actions"><button class="btn btn-secondary" onclick="JW.gerarMensalidadesFinanceiro()"><i class="fas fa-play"></i> Gerar agora</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
+    );
+  };
+
+  JW.abrirResumoLancamentosFinanceiro = function(clienteEmail) {
+    var grupos = JW.getLancamentosFinanceiro();
+    var grupo = null;
+    for (var i = 0; i < grupos.length; i++) {
+      if (grupos[i].clienteEmail === clienteEmail) {
+        grupo = grupos[i];
+        break;
+      }
+    }
+    if (!grupo) return;
+
+    var html = '<div class="list">';
+    for (var j = 0; j < (grupo.itens || []).length; j++) {
+      var item = grupo.itens[j];
+      html += '<div class="list-item">' +
+        '<div><strong>' + JW.escapeHTML(item.descricao || item.itemNome || item.tipoLancamento) + '</strong><div class="text-muted">' + JW.escapeHTML(item.tipoLancamento || "") + ' | ' + JW.escapeHTML(item.competencia || "") + ' | Qtd: ' + JW.escapeHTML(item.quantidade || 0) + '</div></div>' +
+        '<strong>' + JW.escapeHTML(item.valorTotalFormatado || JW.formatarMoeda(item.valorTotal || 0)) + '</strong>' +
+      '</div>';
+    }
+    html += '</div>';
+
+    JW.abrirModalSistema(
+      '<i class="fas fa-list"></i> Lancamentos de ' + JW.escapeHTML(grupo.clienteNome || grupo.clienteEmail),
+      '<div class="history-note">Total em aberto: ' + JW.escapeHTML(grupo.totalAbertoFormatado || JW.formatarMoeda(grupo.totalAberto || 0)) + '</div>' + html,
+      '<div class="modal-actions"><button class="btn btn-primary" onclick="JW.fecharModalSistema()">Fechar</button></div>'
+    );
+  };
+
+  JW.abrirResumoCobrancaFinanceiro = function(id) {
+    var cobrancas = JW.getCobrancasFinanceiro();
+    var cobranca = null;
+    for (var i = 0; i < cobrancas.length; i++) {
+      if (String(cobrancas[i].id) === String(id)) {
+        cobranca = cobrancas[i];
+        break;
+      }
+    }
+    if (!cobranca) return;
+
+    var html = '<div class="history-note">Cliente: ' + JW.escapeHTML(cobranca.clienteNome || cobranca.clienteEmail) + '<br>Total: ' + JW.escapeHTML(cobranca.valorTotalFormatado || JW.formatarMoeda(cobranca.valorTotal || 0)) + '<br>Vencimento: ' + JW.escapeHTML(JW.somenteData(cobranca.vencimento || "-")) + '</div><div class="list">';
+    for (var j = 0; j < (cobranca.itens || []).length; j++) {
+      var item = cobranca.itens[j];
+      html += '<div class="list-item">' +
+        '<div><strong>' + JW.escapeHTML(item.descricao || item.itemNome || item.tipoLancamento || "Lançamento") + '</strong><div class="text-muted">' + JW.escapeHTML(item.tipoLancamento || "") + ' | ' + JW.escapeHTML(item.competencia || "") + '</div></div>' +
+        '<strong>' + JW.escapeHTML(JW.formatarMoeda(item.valorTotal || 0)) + '</strong>' +
+      '</div>';
+    }
+    html += '</div>';
+
+    JW.abrirModalSistema(
+      '<i class="fas fa-file-invoice-dollar"></i> ' + JW.escapeHTML(cobranca.id),
+      html,
+      '<div class="modal-actions"><button class="btn btn-secondary" onclick="JW.abrirPdfCobrancaFinanceiro(' + JW.attrJs(cobranca.id) + ')"><i class="fas fa-file-pdf"></i> PDF</button><button class="btn btn-primary" onclick="JW.fecharModalSistema()">Fechar</button></div>'
+    );
+  };
+
+  JW.preencherItemLancamentoFinanceiro = function() {
+    var itemId = (document.getElementById("financeiroLancamentoItem") || {}).value || "";
+    var item = JW.buscarItemFinanceiro(itemId);
+    if (!item) return;
+
+    var descricao = document.getElementById("financeiroLancamentoDescricao");
+    var valor = document.getElementById("financeiroLancamentoValor");
+    if (descricao && !descricao.value) descricao.value = item.nome || "";
+    if (valor && (!valor.value || valor.value === "R$ 0,00")) valor.value = item.valorPadraoFormatado || JW.formatarMoeda(item.valorPadrao || 0);
+  };
+
+  JW.salvarItemFinanceiro = async function() {
+    var dados = {
+      nome: (document.getElementById("financeiroItemNome") || {}).value || "",
+      categoria: (document.getElementById("financeiroItemCategoria") || {}).value || "",
+      unidade: (document.getElementById("financeiroItemUnidade") || {}).value || "",
+      valorPadrao: JW.numero((document.getElementById("financeiroItemValor") || {}).value || ""),
+      tipoUso: (document.getElementById("financeiroItemUso") || {}).value || "",
+      descricao: (document.getElementById("financeiroItemDescricao") || {}).value || "",
+      estoque: parseInt((document.getElementById("financeiroItemEstoque") || {}).value || "0", 10) || 0,
+      imagemDataUrl: JW.financeiroItemImagem || ""
+    };
+    if (!dados.nome.trim()) {
+      JW.toast("Informe o nome do item.", "error");
+      return;
+    }
+
+    JW.mostrarLoading("Salvando item...");
+    try {
+      var resultado = await JW.chamarGoogleScript("salvarItemCobrancaFinanceiroV3", dados);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Item salvo.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) {
+        JW.fecharModalSistema();
+        await JW.carregarFinanceiro();
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao salvar item: " + (error.message || error), "error");
+    }
+  };
+
+  JW.registrarLancamentoFinanceiro = async function() {
+    var dados = {
+      clienteEmail: (document.getElementById("financeiroLancamentoCliente") || {}).value || "",
+      tipoLancamento: (document.getElementById("financeiroLancamentoTipo") || {}).value || "",
+      itemId: (document.getElementById("financeiroLancamentoItem") || {}).value || "",
+      descricao: (document.getElementById("financeiroLancamentoDescricao") || {}).value || "",
+      quantidade: (document.getElementById("financeiroLancamentoQuantidade") || {}).value || "1",
+      valorUnitario: JW.numero((document.getElementById("financeiroLancamentoValor") || {}).value || ""),
+      competencia: (document.getElementById("financeiroLancamentoCompetencia") || {}).value || "",
+      referencia: (document.getElementById("financeiroLancamentoReferencia") || {}).value || "",
+      observacoes: (document.getElementById("financeiroLancamentoObs") || {}).value || ""
+    };
+    if (!dados.clienteEmail) {
+      JW.toast("Selecione um cliente.", "error");
+      return;
+    }
+
+    JW.mostrarLoading("Registrando lancamento...");
+    try {
+      var resultado = await JW.chamarGoogleScript("registrarLancamentoFinanceiroV3", dados);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Lancamento registrado.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) {
+        JW.fecharModalSistema();
+        await JW.carregarFinanceiro();
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao registrar lancamento: " + (error.message || error), "error");
+    }
+  };
+
+  JW.salvarMensalidadeFinanceiro = async function() {
+    var dados = {
+      clienteEmail: (document.getElementById("financeiroMensalidadeCliente") || {}).value || "",
+      descricao: (document.getElementById("financeiroMensalidadeDescricao") || {}).value || "",
+      valor: JW.numero((document.getElementById("financeiroMensalidadeValor") || {}).value || ""),
+      diaVencimento: (document.getElementById("financeiroMensalidadeDia") || {}).value || "10",
+      observacoes: (document.getElementById("financeiroMensalidadeObs") || {}).value || "",
+      status: "Ativo"
+    };
+    if (!dados.clienteEmail) {
+      JW.toast("Selecione um cliente.", "error");
+      return;
+    }
+
+    JW.mostrarLoading("Salvando mensalidade...");
+    try {
+      var resultado = await JW.chamarGoogleScript("salvarAssinaturaMensalFinanceiroV3", dados);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Mensalidade salva.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) {
+        JW.fecharModalSistema();
+        await JW.carregarFinanceiro();
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao salvar mensalidade: " + (error.message || error), "error");
+    }
+  };
+
+  JW.gerarMensalidadesFinanceiro = async function() {
+    var competencia = (document.getElementById("financeiroGerarCompetencia") || {}).value || JW.getCompetenciaAtualFinanceiro();
+    JW.mostrarLoading("Gerando mensalidades...");
+    try {
+      var resultado = await JW.chamarGoogleScript("gerarLancamentosMensaisFinanceiroV3", competencia);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Mensalidades processadas.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) {
+        JW.fecharModalSistema();
+        await JW.carregarFinanceiro();
+      }
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao gerar mensalidades: " + (error.message || error), "error");
+    }
+  };
+
+  JW.abrirGerarCobrancaFinanceiro = function(clienteEmail) {
+    var grupo = null;
+    var grupos = JW.getLancamentosFinanceiro();
+    for (var i = 0; i < grupos.length; i++) {
+      if (grupos[i].clienteEmail === clienteEmail) {
+        grupo = grupos[i];
+        break;
+      }
+    }
+    if (!grupo) return;
+
+    JW.abrirModalSistema(
+      '<i class="fas fa-file-invoice-dollar"></i> Gerar cobrança',
+      '<input type="hidden" id="financeiroCobrancaCliente" value="' + JW.escapeAttr(clienteEmail) + '">' +
+      '<p>Voce vai gerar uma cobranca com todos os lancamentos em aberto deste cliente.</p>' +
+      '<div class="history-note">Cliente: ' + JW.escapeHTML(grupo.clienteNome || grupo.clienteEmail) + '<br>Total em aberto: ' + JW.escapeHTML(grupo.totalAbertoFormatado || JW.formatarMoeda(grupo.totalAberto || 0)) + '</div>' +
+      '<div class="form-group"><label class="form-label">Vencimento</label><input id="financeiroCobrancaVencimento" class="form-input" value="' + JW.escapeAttr(JW.getDataFuturaFinanceiro(7)) + '" placeholder="dd/mm/aaaa"></div>' +
+      '<div class="form-group"><label class="form-label">Observações</label><textarea id="financeiroCobrancaObs" class="form-input" rows="3"></textarea></div>',
+      '<div class="modal-actions"><button class="btn btn-primary" onclick="JW.confirmarGerarCobrancaFinanceiro()"><i class="fas fa-file-invoice-dollar"></i> Gerar cobrança</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
+    );
+  };
+
+  JW.confirmarGerarCobrancaFinanceiro = async function() {
+    var dados = {
+      clienteEmail: (document.getElementById("financeiroCobrancaCliente") || {}).value || "",
+      vencimento: (document.getElementById("financeiroCobrancaVencimento") || {}).value || "",
+      observacoes: (document.getElementById("financeiroCobrancaObs") || {}).value || ""
+    };
+    JW.fecharModalSistema();
+    JW.mostrarLoading("Gerando cobranca...");
+    try {
+      var resultado = await JW.chamarGoogleScript("gerarCobrancaFinanceiroV3", dados);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Cobranca gerada.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success && resultado.linkWhatsApp) {
+        window.open(resultado.linkWhatsApp, "_blank");
+      }
+      if (resultado && resultado.success) await JW.carregarFinanceiro();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao gerar cobranca: " + (error.message || error), "error");
+    }
+  };
+
+  JW.abrirWhatsAppCobrancaFinanceiro = async function(id) {
+    try {
+      var resultado = await JW.chamarGoogleScript("getLinkWhatsAppCobrancaFinanceiroV3", id);
+      if (resultado && resultado.success && resultado.linkWhatsApp) {
+        window.open(resultado.linkWhatsApp, "_blank");
+      } else {
+        JW.toast(resultado && resultado.message ? resultado.message : "Link do WhatsApp indisponivel.", "error");
+      }
+    } catch (error) {
+      JW.toast("Erro ao abrir WhatsApp: " + (error.message || error), "error");
+    }
+  };
+
+  JW.abrirPdfCobrancaFinanceiro = async function(id) {
+    try {
+      var resultado = await JW.chamarGoogleScript("getPdfCobrancaFinanceiroV3", id);
+      if (resultado && resultado.success && resultado.pdfUrl) {
+        window.open(resultado.pdfUrl, "_blank");
+      } else {
+        JW.toast(resultado && resultado.message ? resultado.message : "PDF indisponivel.", "error");
+      }
+    } catch (error) {
+      JW.toast("Erro ao abrir PDF: " + (error.message || error), "error");
+    }
+  };
+
+  JW.marcarCobrancaFinanceiroEnviada = async function(id) {
+    JW.mostrarLoading("Atualizando cobranca...");
+    try {
+      var resultado = await JW.chamarGoogleScript("marcarCobrancaFinanceiroEnviadaV3", id);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Cobranca atualizada.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) await JW.carregarFinanceiro();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao atualizar cobranca: " + (error.message || error), "error");
+    }
+  };
+
+  JW.enviarCobrancaWhatsAppFinanceiro = async function(id) {
+    JW.mostrarLoading("Enviando cobranca...");
+    try {
+      var resultado = await JW.chamarGoogleScript("enviarCobrancaWhatsAppFinanceiroV3", id);
+      JW.esconderLoading();
+      if (resultado && resultado.success) {
+        JW.toast(resultado.message || "Cobranca enviada com sucesso.", "success");
+        await JW.carregarFinanceiro();
+        return;
+      }
+
+      if (resultado && resultado.manual && resultado.linkWhatsApp) {
+        JW.toast(resultado.message || "Automacao indisponivel. Abrindo envio manual.", "warning");
+        window.open(resultado.linkWhatsApp, "_blank");
+        return;
+      }
+
+      JW.toast(resultado && resultado.message ? resultado.message : "Nao foi possivel enviar a cobranca.", "error");
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao enviar cobranca: " + (error.message || error), "error");
+    }
+  };
+
+  JW.abrirStatusCobrancaFinanceiro = function(id, status) {
+    JW.abrirModalSistema(
+      '<i class="fas fa-pen"></i> Atualizar cobranca',
+      '<input type="hidden" id="financeiroStatusCobrancaId" value="' + JW.escapeAttr(id) + '">' +
+      '<input type="hidden" id="financeiroStatusCobrancaValor" value="' + JW.escapeAttr(status) + '">' +
+      '<p>Voce esta alterando a cobranca <strong>' + JW.escapeHTML(id) + '</strong> para <strong>' + JW.escapeHTML(status) + '</strong>.</p>' +
+      '<div class="form-group"><label class="form-label">Observações</label><textarea id="financeiroStatusCobrancaObs" class="form-input" rows="3" placeholder="Opcional"></textarea></div>',
+      '<div class="modal-actions"><button class="btn btn-primary" onclick="JW.confirmarStatusCobrancaFinanceiro()">Confirmar</button><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Cancelar</button></div>'
+    );
+  };
+
+  JW.confirmarStatusCobrancaFinanceiro = async function() {
+    var id = (document.getElementById("financeiroStatusCobrancaId") || {}).value || "";
+    var status = (document.getElementById("financeiroStatusCobrancaValor") || {}).value || "";
+    var observacoes = (document.getElementById("financeiroStatusCobrancaObs") || {}).value || "";
+    JW.fecharModalSistema();
+    JW.mostrarLoading("Atualizando cobranca...");
+    try {
+      var resultado = await JW.chamarGoogleScript("atualizarStatusCobrancaFinanceiroV3", id, status, observacoes);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Cobranca atualizada.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) await JW.carregarFinanceiro();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao atualizar cobranca: " + (error.message || error), "error");
+    }
+  };
+
+  JW.carregarMensagensDiretas = async function() {
+    JW.setTitulo("Comunicacao");
+    if (!JW.isAdmin()) {
+      JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
+      return;
+    }
+
     var produtos = await JW.chamarGoogleScript("getProdutos");
     JW.produtosCache = produtos || [];
     var notif = await JW.chamarGoogleScript("getAllNotificacoesV3");
     var historico = notif && notif.itens ? notif.itens : [];
-    var conversasResp = usarFirebaseChat ? { conversas: [] } : await JW.chamarGoogleScript("getConversasAdminV3");
-    var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
+    JW.historicoNotificacoesAdmin = historico;
+    var telefonesResp = await JW.chamarGoogleScript("listarTelefonesAutorizados").catch(function(error) {
+      return { success: false, message: error.message || error, telefones: [] };
+    });
     var options = '<option value="">Sem item vinculado</option>';
     for (var i = 0; i < JW.produtosCache.length; i++) {
       options += '<option value="' + JW.escapeAttr(JW.produtosCache[i].id) + '">' + JW.escapeHTML(JW.produtosCache[i].nome) + '</option>';
     }
 
     JW.renderMain(
-      '<div class="messages-admin-layout">' +
-      '<div class="card"><h3>Enviar notificacao</h3>' +
-        '<div class="form-group"><label class="form-label">Titulo</label><input id="notifTitulo" class="form-input"></div>' +
-        '<div class="form-group"><label class="form-label">Mensagem</label><textarea id="notifMensagem" class="form-input" rows="4"></textarea></div>' +
-        '<div class="form-group"><label class="form-label">Destinatarios</label><select id="notifDestinatarios" class="form-input"><option value="todos">Todos</option><option value="clientes">Clientes</option><option value="admin">Admins</option></select></div>' +
-        '<div class="form-group"><label class="form-label">Tipo</label><select id="notifTipo" class="form-input"><option value="info">Informacao</option><option value="success">Promocao</option><option value="warning">Aviso</option><option value="danger">Urgente</option></select></div>' +
-        '<div class="form-group"><label class="form-label">Vincular item da loja</label><select id="notifProduto" class="form-input">' + options + '</select></div>' +
-        '<label style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;"><input id="notifEmail" type="checkbox"> Enviar tambem por email</label>' +
-        '<button class="btn btn-primary" onclick="JW.enviarNotificacaoAdmin()"><i class="fas fa-paper-plane"></i> Enviar notificacao</button>' +
+      '<div class="communication-tabs">' +
+        '<button class="communication-tab active" data-section="notificacoes" onclick="JW.abrirSecaoComunicacao(' + JW.attrJs("notificacoes") + ')"><i class="fas fa-paper-plane"></i> Notificacoes</button>' +
+        '<button class="communication-tab" data-section="telefones" onclick="JW.abrirSecaoComunicacao(' + JW.attrJs("telefones") + ')"><i class="fas fa-phone"></i> Telefones autorizados</button>' +
       '</div>' +
-      '<div class="card"><h3>Mensagens de clientes</h3><div id="adminConversasFirebase">' + (usarFirebaseChat ? '<p class="text-muted">Conectando ao Firebase...</p>' : JW.renderConversasAdmin(conversas)) + '</div></div>' +
-      '<div class="card"><h3>Historico de notificacoes</h3>' + JW.renderHistoricoNotificacoes(historico) + '</div>' +
-      '</div>'
+      '<section class="communication-section active" data-section="notificacoes">' +
+        '<div class="admin-communication-grid">' +
+          '<div class="card"><h3>Enviar notificacao</h3>' +
+            '<div class="form-group"><label class="form-label">Titulo</label><input id="notifTitulo" class="form-input"></div>' +
+            '<div class="form-group"><label class="form-label">Mensagem</label><textarea id="notifMensagem" class="form-input" rows="4"></textarea></div>' +
+            '<div class="form-group"><label class="form-label">Destinatarios</label><select id="notifDestinatarios" class="form-input"><option value="todos">Todos</option><option value="clientes">Clientes</option><option value="admin">Admins</option></select></div>' +
+            '<div class="form-group"><label class="form-label">Tipo</label><select id="notifTipo" class="form-input"><option value="info">Informacao</option><option value="success">Promocao</option><option value="warning">Aviso</option><option value="danger">Urgente</option></select></div>' +
+            '<div class="form-group"><label class="form-label">Vincular item da loja</label><select id="notifProduto" class="form-input" ' + (JW.lojaSuspensa ? "disabled" : "") + '>' + options + '</select><small class="text-muted">' + (JW.lojaSuspensa ? "Loja suspensa: vinculo com produto desativado por hora." : "") + '</small></div>' +
+            '<label style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;"><input id="notifEmail" type="checkbox"> Enviar tambem por email</label>' +
+            '<button class="btn btn-primary" onclick="JW.enviarNotificacaoAdmin()"><i class="fas fa-paper-plane"></i> Enviar notificacao</button>' +
+          '</div>' +
+          '<div class="card"><h3>Historico de notificacoes</h3><div id="historicoNotificacoesAdmin">' + JW.renderHistoricoNotificacoes(historico) + '</div></div>' +
+        '</div>' +
+      '</section>' +
+      '<section class="communication-section" data-section="telefones">' +
+        JW.renderTelefonesAutorizadosAdmin(telefonesResp) +
+      '</section>'
     );
-    if (usarFirebaseChat) JW.observarConversasAdminFirebase("adminConversasFirebase");
   };
 
   JW.carregarAdmin = JW.carregarMensagensDiretas;
+
+  JW.abrirSecaoComunicacao = function(secao) {
+    var tabs = document.querySelectorAll(".communication-tab");
+    var sections = document.querySelectorAll(".communication-section");
+    for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle("active", tabs[i].getAttribute("data-section") === secao);
+    for (var j = 0; j < sections.length; j++) sections[j].classList.toggle("active", sections[j].getAttribute("data-section") === secao);
+  };
+
+  JW.renderTelefonesAutorizadosAdmin = function(resp) {
+    var telefones = resp && resp.telefones ? resp.telefones : [];
+    var html = '<div class="admin-communication-grid">' +
+      '<div class="card"><h3>Adicionar telefone autorizado</h3>' +
+        '<div class="form-group"><label class="form-label">Nome</label><input id="telefoneAutorizadoNome" class="form-input" placeholder="Nome do cliente"></div>' +
+        '<div class="form-group"><label class="form-label">Telefone</label><input id="telefoneAutorizadoNumero" class="form-input" type="tel" placeholder="(16) 99123-4567" oninput="JW.formatarTelefone(this)"></div>' +
+        '<button class="btn btn-success" onclick="JW.adicionarTelefoneAdmin()"><i class="fas fa-plus"></i> Autorizar telefone</button>' +
+      '</div>' +
+      '<div class="card"><h3>Telefones liberados para cadastro</h3><div id="telefonesAutorizadosAdmin" class="phone-admin-list">';
+    if (!telefones.length) {
+      html += '<p class="text-muted">Nenhum telefone autorizado.</p>';
+    } else {
+      for (var i = 0; i < telefones.length; i++) {
+        var t = telefones[i] || {};
+        html += '<div class="phone-admin-item">' +
+          '<div><strong>' + JW.escapeHTML(t.telefone || "") + '</strong><div class="text-muted">' + JW.escapeHTML(t.nome || "Sem nome") + ' | ' + JW.escapeHTML(t.status || "") + ' | Usado: ' + JW.escapeHTML(t.usado || "Nao") + '</div></div>' +
+          '<button class="btn btn-danger btn-sm" onclick="JW.removerTelefoneAdmin(' + JW.attrJs(t.telefone || "") + ')"><i class="fas fa-trash"></i></button>' +
+        '</div>';
+      }
+    }
+    return html + '</div></div></div>';
+  };
+
+  JW.recarregarTelefonesAdmin = async function() {
+    var destino = document.querySelector('[data-section="telefones"]');
+    if (!destino) return;
+    destino.innerHTML = '<div class="card"><p class="text-muted">Atualizando telefones...</p></div>';
+    var resp = await JW.chamarGoogleScript("listarTelefonesAutorizados");
+    destino.innerHTML = JW.renderTelefonesAutorizadosAdmin(resp);
+  };
+
+  JW.adicionarTelefoneAdmin = async function() {
+    var telefone = (document.getElementById("telefoneAutorizadoNumero") || {}).value || "";
+    var nome = (document.getElementById("telefoneAutorizadoNome") || {}).value || "";
+    if (!telefone.trim()) {
+      JW.toast("Informe o telefone autorizado.", "error");
+      return;
+    }
+    JW.mostrarLoading("Autorizando telefone...");
+    try {
+      var resultado = await JW.chamarGoogleScript("adicionarTelefoneAutorizado", telefone, nome);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Telefone processado.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) await JW.recarregarTelefonesAdmin();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao autorizar telefone: " + (error.message || error), "error");
+    }
+  };
+
+  JW.removerTelefoneAdmin = async function(telefone) {
+    if (!telefone) return;
+    JW.mostrarLoading("Removendo telefone...");
+    try {
+      var resultado = await JW.chamarGoogleScript("removerTelefoneAutorizado", telefone);
+      JW.esconderLoading();
+      JW.toast(resultado && resultado.message ? resultado.message : "Telefone removido.", resultado && resultado.success ? "success" : "error");
+      if (resultado && resultado.success) await JW.recarregarTelefonesAdmin();
+    } catch (error) {
+      JW.esconderLoading();
+      JW.toast("Erro ao remover telefone: " + (error.message || error), "error");
+    }
+  };
 
   JW.firebaseChatConfig = {
     apiKey: "AIzaSyB8zVxedBW7xJol9m-9D0X0jRNiWuqEvgk",
@@ -1501,7 +3075,8 @@
     adminConversasRef: null,
     adminConversaRef: null,
     clienteConversaRef: null,
-    clienteBadgeRef: null
+    clienteBadgeRef: null,
+    typingRef: null
   };
 
   JW.iniciarFirebaseChat = function() {
@@ -1579,6 +3154,7 @@
     JW.firebaseChat.adminConversasRef = ref;
     ref.on("value", function(snapshot) {
       var conversas = JW.conversasFirebaseArray(snapshot.val());
+      JW.conversasAdminCache = conversas;
       var totalNaoLidas = 0;
       for (var i = 0; i < conversas.length; i++) totalNaoLidas += parseInt(conversas[i].naoLidasAdmin, 10) || 0;
       var destino = document.getElementById(containerId);
@@ -1603,7 +3179,7 @@
       var hist = document.getElementById(containerId);
       if (!hist) return;
       hist.innerHTML = JW.renderMensagensChat(JW.mensagensFirebaseArray(snapshot.val()));
-      hist.scrollTop = hist.scrollHeight;
+      JW.scrollChatParaFinal(containerId);
     }, function(error) {
       var hist = document.getElementById(containerId);
       if (hist) hist.innerHTML = '<p class="text-muted">Nao foi possivel carregar a conversa em tempo real.</p>';
@@ -1612,6 +3188,13 @@
     var campoLeitura = JW.isAdmin() ? "naoLidasAdmin" : "naoLidasCliente";
     JW.firebaseChat.db.ref("jwChat/conversations/" + id + "/" + campoLeitura).set(0).catch(function() {});
     return true;
+  };
+
+  JW.scrollChatParaFinal = function(containerId) {
+    window.requestAnimationFrame(function() {
+      var hist = document.getElementById(containerId);
+      if (hist) hist.scrollTop = hist.scrollHeight;
+    });
   };
 
   JW.observarBadgeClienteFirebase = function() {
@@ -1632,7 +3215,12 @@
     if (!JW.iniciarFirebaseChat()) throw new Error("Firebase indisponivel.");
     dados = dados || {};
     var mensagem = String(dados.mensagem || "").trim();
-    if (!mensagem) throw new Error("Digite uma mensagem.");
+    var tipoMensagem = dados.tipo || "texto";
+    var audioDataUrl = dados.audioDataUrl || "";
+    var imagemDataUrl = dados.imagemDataUrl || "";
+    if (!mensagem && tipoMensagem !== "audio" && tipoMensagem !== "imagem") throw new Error("Digite uma mensagem.");
+    if (tipoMensagem === "audio" && !audioDataUrl) throw new Error("Audio nao encontrado.");
+    if (tipoMensagem === "imagem" && !imagemDataUrl) throw new Error("Imagem nao encontrada.");
     var remetenteTipo = dados.remetenteTipo || "Cliente";
     var clienteEmail = String(remetenteTipo === "Administrador" ? dados.clienteEmail : dados.email || "").trim().toLowerCase();
     if (!clienteEmail) throw new Error("Cliente nao identificado.");
@@ -1653,13 +3241,21 @@
       remetenteEmail: remetenteEmail,
       remetenteNome: remetenteNome,
       remetenteTipo: remetenteTipo,
-      mensagem: mensagem
+      mensagem: mensagem,
+      tipo: tipoMensagem,
+      audioDataUrl: audioDataUrl,
+      imagemDataUrl: imagemDataUrl,
+      mimeType: dados.mimeType || "",
+      duracao: dados.duracao || ""
     };
+    var ultimaMensagem = mensagem;
+    if (tipoMensagem === "audio") ultimaMensagem = "Audio";
+    if (tipoMensagem === "imagem") ultimaMensagem = "Imagem";
     var updates = {};
     updates["jwChat/messages/" + conversaId + "/" + novaMensagemRef.key] = item;
     updates["jwChat/conversations/" + conversaId + "/clienteEmail"] = clienteEmail;
     updates["jwChat/conversations/" + conversaId + "/clienteNome"] = clienteNome;
-    updates["jwChat/conversations/" + conversaId + "/ultimaMensagem"] = mensagem;
+    updates["jwChat/conversations/" + conversaId + "/ultimaMensagem"] = ultimaMensagem;
     updates["jwChat/conversations/" + conversaId + "/ultimaData"] = JW.dataHoraFirebase(agora);
     updates["jwChat/conversations/" + conversaId + "/ultimaTimestamp"] = firebase.database.ServerValue.TIMESTAMP;
     await root.update(updates);
@@ -1670,32 +3266,194 @@
     return { success: true, message: "Mensagem enviada.", id: novaMensagemRef.key };
   };
 
-  JW.renderConversasAdmin = function(conversas) {
-    if (!conversas || !conversas.length) return '<p class="text-muted">Nenhuma conversa iniciada.</p>';
-    var html = '<div class="list">';
-    for (var i = 0; i < conversas.length; i++) {
-      var c = conversas[i];
-      html += '<div class="list-item">' +
-        '<div><strong>' + JW.escapeHTML(c.clienteNome || c.clienteEmail) + '</strong><div class="text-muted">' + JW.escapeHTML(c.ultimaData || "") + '</div><div>' + JW.escapeHTML(c.ultimaMensagem || "") + '</div></div>' +
-        '<button class="btn btn-primary btn-sm" onclick="JW.abrirConversaAdmin(' + JW.attrJs(c.clienteEmail) + ')"><i class="fas fa-comments"></i> Responder</button>' +
-      '</div>';
+  JW.setTypingFirebase = function(clienteEmail, ativo) {
+    if (!JW.iniciarFirebaseChat() || !clienteEmail || !JW.usuarioLogado) return;
+    var conversaId = JW.chatKeyFirebase(clienteEmail);
+    var chave = JW.isAdmin() ? "admin" : "cliente";
+    var ref = JW.firebaseChat.db.ref("jwChat/typing/" + conversaId + "/" + chave);
+    ref.set({
+      ativo: !!ativo,
+      nome: JW.usuarioLogado.usuario || JW.usuarioLogado.email || "",
+      tipo: JW.isAdmin() ? "Administrador" : "Cliente",
+      modo: "texto",
+      timestamp: firebase.database.ServerValue.TIMESTAMP
+    }).catch(function() {});
+  };
+
+  JW.setRecordingFirebase = function(clienteEmail, ativo) {
+    if (!JW.iniciarFirebaseChat() || !clienteEmail || !JW.usuarioLogado) return;
+    var conversaId = JW.chatKeyFirebase(clienteEmail);
+    var chave = JW.isAdmin() ? "admin" : "cliente";
+    var ref = JW.firebaseChat.db.ref("jwChat/typing/" + conversaId + "/" + chave);
+    ref.set({
+      ativo: !!ativo,
+      nome: JW.usuarioLogado.usuario || JW.usuarioLogado.email || "",
+      tipo: JW.isAdmin() ? "Administrador" : "Cliente",
+      modo: "audio",
+      timestamp: firebase.database.ServerValue.TIMESTAMP
+    }).catch(function() {});
+  };
+
+  JW.notificarDigitandoChat = function(clienteEmail) {
+    if (!clienteEmail) return;
+    JW.setTypingFirebase(clienteEmail, true);
+    var chave = JW.chatKeyFirebase(clienteEmail) + (JW.isAdmin() ? "_admin" : "_cliente");
+    if (JW.chatTypingTimers[chave]) window.clearTimeout(JW.chatTypingTimers[chave]);
+    JW.chatTypingTimers[chave] = window.setTimeout(function() {
+      JW.setTypingFirebase(clienteEmail, false);
+    }, 1600);
+  };
+
+  JW.observarDigitandoFirebase = function(clienteEmail, containerId) {
+    if (!JW.iniciarFirebaseChat() || !clienteEmail) return false;
+    if (JW.firebaseChat.typingRef) JW.firebaseChat.typingRef.off();
+    var conversaId = JW.chatKeyFirebase(clienteEmail);
+    var alvo = JW.isAdmin() ? "cliente" : "admin";
+    var ref = JW.firebaseChat.db.ref("jwChat/typing/" + conversaId + "/" + alvo);
+    JW.firebaseChat.typingRef = ref;
+    ref.on("value", function(snapshot) {
+      var el = document.getElementById(containerId);
+      if (!el) return;
+      var valor = snapshot.val() || {};
+      var recente = valor.timestamp ? (Date.now() - parseInt(valor.timestamp, 10) < 5000) : true;
+      if (!valor.ativo || !recente) {
+        el.textContent = "";
+        return;
+      }
+      el.textContent = (valor.nome || "Usuario") + (valor.modo === "audio" ? " esta gravando audio..." : " esta digitando...");
+    });
+    return true;
+  };
+
+  JW.bindTypingInput = function(inputId, clienteEmail) {
+    var campo = document.getElementById(inputId);
+    if (!campo || campo.dataset.typingBound) return;
+    campo.dataset.typingBound = "1";
+    campo.addEventListener("input", function() {
+      JW.notificarDigitandoChat(clienteEmail);
+    });
+  };
+
+  JW.fecharChatWidget = function() {
+    var widget = document.getElementById("supportChatWidget");
+    if (widget) widget.classList.remove("open");
+    JW.chatAdminMobileView = "lista";
+    JW.atualizarBotaoChatFlutuante(false);
+    document.body.classList.remove("chat-immersive-open");
+  };
+
+  JW.renderFiltrosConversasAdmin = function() {
+    var filtros = [
+      { id: "todas", label: "Tudo" },
+      { id: "nao-lidas", label: "Não lidas" },
+      { id: "lidas", label: "Lidas" },
+      { id: "favoritas", label: "Favoritas" }
+    ];
+    var html = '<div class="admin-chat-filters">';
+    for (var i = 0; i < filtros.length; i++) {
+      html += '<button class="admin-chat-filter ' + (JW.chatFiltroAdmin === filtros[i].id ? 'active' : '') + '" data-filter="' + JW.escapeAttr(filtros[i].id) + '" onclick="JW.setFiltroConversasAdmin(' + JW.attrJs(filtros[i].id) + ')">' + JW.escapeHTML(filtros[i].label) + '</button>';
     }
     return html + '</div>';
   };
 
-  JW.abrirConversaAdmin = async function(clienteEmail) {
+  JW.atualizarLayoutChatAdminMobile = function() {
+    var layout = document.querySelector(".admin-whatsapp-layout");
+    if (!layout) return;
+    layout.classList.toggle("mobile-thread-open", JW.isMobileLayout() && JW.chatAdminMobileView === "conversa");
+  };
+
+  JW.voltarListaChatAdmin = function() {
+    JW.chatAdminMobileView = "lista";
+    JW.atualizarLayoutChatAdminMobile();
+  };
+
+  JW.renderAdminChatVazio = function() {
+    var topoMobile = JW.isMobileLayout()
+      ? '<button class="chat-header-icon chat-mobile-back" type="button" onclick="JW.voltarListaChatAdmin()"><i class="fas fa-arrow-left"></i></button>'
+      : '';
+    return '<div class="chat-panel-header">' + topoMobile + JW.avatarChatHtml("Conversas", "", "chat-avatar chat-avatar-large", "Conversas") + '<div class="chat-panel-title-block"><strong>Conversas</strong><div class="chat-header-meta">Selecione um cliente para abrir o atendimento.</div></div></div>' +
+      '<div class="chat-panel-body"><div class="chat-history chat-empty-state"></div></div>';
+  };
+
+  JW.renderAdminChatPainel = function(clienteEmail, clienteNome, mensagens) {
+    var nome = JW.nomeExibicaoChat(clienteNome, clienteEmail, "Cliente");
+    var favorito = JW.isFavoritoChatAdmin(clienteEmail);
+    var topoMobile = JW.isMobileLayout()
+      ? '<button class="chat-header-icon chat-mobile-back" type="button" onclick="JW.voltarListaChatAdmin()"><i class="fas fa-arrow-left"></i></button>'
+      : '';
+    return '<div class="chat-panel-header">' + topoMobile + JW.avatarChatHtml(nome, clienteEmail, "chat-avatar chat-avatar-large", "Cliente") + '<div class="chat-panel-title-block"><strong>' + JW.escapeHTML(nome) + '</strong><div class="chat-header-meta">Cliente</div></div><div class="chat-header-actions"><button class="chat-header-icon" type="button" onclick="JW.toggleFavoritoChatAdmin(' + JW.attrJs(clienteEmail) + ', event)" title="Favoritar conversa"><i class="' + (favorito ? 'fas' : 'far') + ' fa-star"></i></button></div></div>' +
+      '<div class="chat-panel-body">' +
+        '<div class="chat-history" id="chatHistoryAdmin">' + JW.renderMensagensChat(mensagens || []) + '</div>' +
+        '<div class="chat-typing-indicator" id="chatTypingAdmin"></div>' +
+        JW.renderChatCompose("admin", "chatMensagemAdmin", "Responder ao cliente") +
+      '</div>';
+  };
+
+  JW.renderChatCompose = function(contexto, inputId, placeholder) {
+    var emojiId = "chatEmoji" + contexto;
+    var recordingId = "chatRecording" + contexto;
+    var tempoId = "chatRecordingTempo" + contexto;
+    var enviar = contexto === "admin" ? "JW.enviarMensagemAdmin()" : "JW.enviarMensagemChatCliente()";
+    return '<div class="chat-compose-wrap">' +
+      '<div class="chat-recording-bar d-none" id="' + recordingId + '">' +
+        '<span class="recording-dot"></span><strong>Gravando</strong><span id="' + tempoId + '">0s</span><small>Arraste para a esquerda para travar</small>' +
+      '</div>' +
+      '<div class="chat-emoji-picker d-none" id="' + emojiId + '">' +
+        ["😀","😁","😂","😊","😍","👍","🙏","💧","🏊","✅","📷","🎧"].map(function(emoji) {
+          return '<button type="button" onclick="JW.inserirEmojiChat(' + JW.attrJs(inputId) + ', ' + JW.attrJs(emoji) + ')">' + emoji + '</button>';
+        }).join("") +
+      '</div>' +
+      '<div class="chat-compose-bar">' +
+        '<button class="chat-compose-icon" type="button" onclick="JW.toggleEmojiPicker(' + JW.attrJs(emojiId) + ')" title="Emojis"><i class="fas fa-face-smile"></i></button>' +
+        '<div class="chat-compose-input-shell">' +
+          '<textarea id="' + inputId + '" class="form-input chat-compose-input" rows="1" placeholder="' + JW.escapeAttr(placeholder || "Digite sua mensagem") + '"></textarea>' +
+        '</div>' +
+        '<button class="chat-compose-icon chat-mic-btn" type="button" data-contexto="' + JW.escapeAttr(contexto) + '" onpointerdown="JW.iniciarGravacaoPress(event, ' + JW.attrJs(contexto) + ')" onpointermove="JW.moverGravacaoPress(event)" onpointerup="JW.finalizarGravacaoPress(event)" onpointercancel="JW.finalizarGravacaoPress(event)" title="Segure para gravar audio"><i class="fas fa-microphone"></i></button>' +
+        '<button class="chat-compose-send" type="button" onclick="' + enviar + '"><i class="fas fa-paper-plane"></i></button>' +
+      '</div>' +
+    '</div>';
+  };
+
+  JW.filtrarConversasAdmin = function(valor) {
+    JW.chatBuscaAdmin = String(valor || "").toLowerCase();
+    var destino = document.getElementById("adminConversasFirebase");
+    if (destino) destino.innerHTML = JW.renderConversasAdmin(JW.conversasAdminCache || []);
+  };
+
+  JW.renderConversasAdmin = function(conversas) {
+    if (!conversas || !conversas.length) return '<p class="text-muted" style="padding:1rem;">Nenhuma conversa iniciada.</p>';
+    conversas = JW.getConversasAdminFiltradas(conversas);
+    var html = "";
+    for (var i = 0; i < conversas.length; i++) {
+      var c = conversas[i];
+      var naoLidas = parseInt(c.naoLidasAdmin, 10) || 0;
+      var nome = JW.nomeExibicaoChat(c.clienteNome, c.clienteEmail, "Cliente");
+      var favorito = JW.isFavoritoChatAdmin(c.clienteEmail);
+      html += '<button class="admin-chat-contact ' + (naoLidas ? "unread" : "") + ' ' + (String(JW.chatClienteAtual || "") === String(c.clienteEmail || "") ? "active" : "") + '" onclick="JW.abrirConversaAdmin(' + JW.attrJs(c.clienteEmail) + ', ' + JW.attrJs(c.clienteNome || "") + ')">' +
+        JW.avatarChatHtml(nome, c.clienteEmail, "admin-chat-contact-avatar", "Cliente") +
+        '<div class="admin-chat-contact-main"><strong>' + JW.escapeHTML(nome) + '</strong><div class="text-muted">' + JW.escapeHTML(JW.resumirTexto(c.ultimaMensagem || "Sem mensagens", 42)) + '</div></div>' +
+        '<div class="admin-chat-contact-side"><span class="admin-chat-favorite-toggle ' + (favorito ? 'active' : '') + '" onclick="JW.toggleFavoritoChatAdmin(' + JW.attrJs(c.clienteEmail) + ', event)"><i class="' + (favorito ? 'fas' : 'far') + ' fa-star"></i></span><span class="text-muted">' + JW.escapeHTML(JW.somenteData(c.ultimaData || "")) + '</span>' + (naoLidas ? '<span class="chat-unread-pill">' + (naoLidas > 9 ? "9+" : naoLidas) + '</span>' : '<i class="fas fa-chevron-right text-muted"></i>') + '</div>' +
+      '</button>';
+    }
+    return html || '<p class="text-muted" style="padding:1rem;">Nenhuma conversa encontrada.</p>';
+  };
+
+  JW.abrirConversaAdmin = async function(clienteEmail, clienteNome) {
     JW.chatClienteAtual = clienteEmail;
+    if (JW.isMobileLayout()) JW.chatAdminMobileView = "conversa";
+    JW.atualizarLayoutChatAdminMobile();
+    var painel = document.getElementById("adminChatPanel");
+    if (!painel) {
+      await JW.abrirChatAdminFlutuante();
+      painel = document.getElementById("adminChatPanel");
+      if (!painel) return;
+    }
     if (JW.iniciarFirebaseChat()) {
-      JW.abrirModalSistema(
-        '<i class="fas fa-comments"></i> Conversa',
-        '<div class="chat-history" id="chatHistoryAdmin"><p class="text-muted">Conectando ao Firebase...</p></div>' +
-        '<textarea id="chatMensagemAdmin" class="form-input" rows="3" placeholder="Responder ao cliente"></textarea>',
-        '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">' +
-          '<button class="btn btn-primary" onclick="JW.enviarMensagemAdmin()">Enviar resposta</button>' +
-          '<button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Fechar</button>' +
-        '</div>'
-      );
+      painel.innerHTML = JW.renderAdminChatPainel(clienteEmail, clienteNome || clienteEmail, []);
       JW.observarConversaFirebase(clienteEmail, "chatHistoryAdmin");
+      JW.observarDigitandoFirebase(clienteEmail, "chatTypingAdmin");
+      JW.bindTypingInput("chatMensagemAdmin", clienteEmail);
+      JW.filtrarConversasAdmin(JW.chatBuscaAdmin || "");
       return;
     }
     JW.mostrarLoading("Carregando conversa...");
@@ -1705,15 +3463,9 @@
         JW.carregarBadgeMensagensAdmin();
       }).catch(function() {});
       JW.esconderLoading();
-      JW.abrirModalSistema(
-        '<i class="fas fa-comments"></i> Conversa',
-        '<div class="chat-history" id="chatHistoryAdmin">' + JW.renderMensagensChat((conversa && conversa.mensagens) || []) + '</div>' +
-        '<textarea id="chatMensagemAdmin" class="form-input" rows="3" placeholder="Responder ao cliente"></textarea>',
-        '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">' +
-          '<button class="btn btn-primary" onclick="JW.enviarMensagemAdmin()">Enviar resposta</button>' +
-          '<button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Fechar</button>' +
-        '</div>'
-      );
+      painel.innerHTML = JW.renderAdminChatPainel(clienteEmail, clienteNome || clienteEmail, (conversa && conversa.mensagens) || []);
+      JW.bindTypingInput("chatMensagemAdmin", clienteEmail);
+      JW.scrollChatParaFinal("chatHistoryAdmin");
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao abrir conversa: " + (error.message || error), "error");
@@ -1737,6 +3489,7 @@
           clienteEmail: JW.chatClienteAtual,
           mensagem: msg
         });
+        JW.setTypingFirebase(JW.chatClienteAtual, false);
         if (campoFirebase) campoFirebase.value = "";
         JW.toast("Resposta enviada.", "success");
       } catch (error) {
@@ -1761,6 +3514,7 @@
       var hist = document.getElementById("chatHistoryAdmin");
       if (campo) campo.value = "";
       if (hist) hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
+      JW.scrollChatParaFinal("chatHistoryAdmin");
       JW.toast("Resposta enviada.", "success");
       JW.carregarBadgeMensagensAdmin();
     } catch (error) {
@@ -1803,12 +3557,42 @@
 
   JW.renderHistoricoNotificacoes = function(lista) {
     if (!lista || !lista.length) return '<p class="text-muted">Nenhuma notificacao enviada.</p>';
-    var html = '<div class="list">';
+    var html = '<div class="list notification-history-list">';
     for (var i = 0; i < lista.length; i++) {
       var n = lista[i];
-      html += '<div class="list-item"><div><strong>' + JW.escapeHTML(n.titulo || "") + '</strong><div class="text-muted">' + JW.escapeHTML(n.dataEnvio || "") + ' | ' + JW.escapeHTML(n.destinatarios || "") + '</div><div>' + JW.escapeHTML(n.mensagem || "") + '</div></div><div style="display:flex;gap:.5rem;align-items:center;"><span class="badge badge-info">' + JW.escapeHTML(n.tipo || "info") + '</span><button class="btn btn-danger btn-sm" onclick="JW.excluirNotificacaoAdmin(' + JW.attrJs(n.id) + ')">Cancelar</button></div></div>';
+      html += '<div class="list-item notification-history-item">' +
+        '<div class="notification-history-copy"><strong>' + JW.escapeHTML(n.titulo || "") + '</strong><div class="text-muted">' + JW.escapeHTML(JW.somenteData(n.dataEnvio || "")) + ' | ' + JW.escapeHTML(n.destinatarios || "") + '</div></div>' +
+        '<div class="notification-history-actions">' +
+          '<span class="badge badge-info">' + JW.escapeHTML(String(n.tipo || "info").toUpperCase()) + '</span>' +
+          '<button class="btn btn-secondary btn-sm notification-action-btn" onclick="JW.abrirTextoNotificacaoAdmin(' + JW.attrJs(n.id) + ')">Ver texto</button>' +
+          '<button class="btn btn-danger btn-sm notification-action-btn" onclick="JW.excluirNotificacaoAdmin(' + JW.attrJs(n.id) + ')">Cancelar</button>' +
+        '</div>' +
+      '</div>';
     }
     return html + '</div>';
+  };
+
+  JW.abrirTextoNotificacaoAdmin = function(id) {
+    var notif = null;
+    for (var i = 0; i < JW.historicoNotificacoesAdmin.length; i++) {
+      if (String((JW.historicoNotificacoesAdmin[i] || {}).id) === String(id)) {
+        notif = JW.historicoNotificacoesAdmin[i];
+        break;
+      }
+    }
+    if (!notif) return;
+    JW.abrirModalSistema(
+      '<i class="fas fa-envelope-open-text"></i> Texto da notificacao',
+      '<div class="notification-detail">' +
+        '<div class="mini-summary-grid">' +
+          '<div><span>TITULO</span><strong>' + JW.escapeHTML(notif.titulo || "-") + '</strong></div>' +
+          '<div><span>TIPO</span><strong>' + JW.escapeHTML(String(notif.tipo || "info").toUpperCase()) + '</strong></div>' +
+          '<div><span>ENVIO</span><strong>' + JW.escapeHTML(JW.somenteData(notif.dataEnvio || "-")) + '</strong></div>' +
+        '</div>' +
+        '<div class="history-note" style="margin-top:1rem;white-space:pre-wrap;">' + JW.escapeHTML(notif.mensagem || "") + '</div>' +
+      '</div>',
+      '<div class="modal-actions"><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Fechar</button></div>'
+    );
   };
 
   JW.excluirNotificacaoAdmin = async function(id) {
@@ -1903,13 +3687,16 @@
     var html = "";
     for (var j = 0; j < JW.notificacoes.length; j++) {
       var n = JW.notificacoes[j];
-      html += '<div class="notification-item" style="padding:1rem;border-bottom:1px solid var(--border);cursor:pointer;' + (!n.lida ? "background:#f8fbff;" : "") + '" onclick="JW.abrirNotificacao(' + JW.attrJs(n.id) + ')">' +
-        '<strong>' + JW.escapeHTML(n.titulo || "") + '</strong>' +
-        '<div class="text-muted">' + JW.escapeHTML(n.dataEnvio || "") + '</div>' +
-        '<div>' + JW.escapeHTML(n.mensagem || "") + '</div>' +
-      '</div>';
+      html += '<button class="notification-item ' + (!n.lida ? 'unread' : '') + '" onclick="JW.abrirNotificacao(' + JW.attrJs(n.id) + ')">' +
+        '<div class="notification-item-main">' +
+          '<strong>' + JW.escapeHTML(n.titulo || "") + '</strong>' +
+          '<div class="text-muted">' + JW.escapeHTML(JW.resumirTexto(n.mensagem || "", 88) || "Sem mensagem") + '</div>' +
+        '</div>' +
+        '<div class="notification-item-side"><span>' + JW.escapeHTML(JW.somenteData(n.dataEnvio || "")) + '</span>' + (!n.lida ? '<i class="fas fa-circle"></i>' : '<i class="fas fa-chevron-right"></i>') + '</div>' +
+      '</button>' +
+      '<div class="notification-item-divider"></div>';
     }
-    list.innerHTML = html;
+    list.innerHTML = '<div class="notifications-list-shell">' + html + '</div>';
   };
 
   JW.toggleNotifications = async function() {
@@ -1928,12 +3715,12 @@
   JW.abrirEnvioNotificacaoAdmin = function() {
     if (!JW.isAdmin()) return;
     JW.fecharNotificacoes();
-    JW.carregarMensagensDiretas();
+    JW.abrirTab("comunicacao");
   };
 
   JW.textoAcaoNotificacao = function(notif) {
     var acao = notif && notif.acao ? String(notif.acao) : "";
-    if (acao.indexOf("tab:produtos") === 0) return "Ver produto na loja";
+    if (acao.indexOf("tab:produtos") === 0) return JW.lojaSuspensa ? "Loja suspensa" : "Ver produto na loja";
     if (acao.indexOf("chat:") === 0) return "Abrir conversa";
     return "Abrir destino";
   };
@@ -1945,9 +3732,9 @@
     }
     if (!notif) return;
     JW.abrirModalSistema(
-      '<i class="' + JW.escapeAttr(notif.icone || "fas fa-bell") + '"></i> ' + JW.escapeHTML(notif.titulo || "Notificacao"),
+      '<i class="' + JW.escapeAttr(notif.icone || "fas fa-bell") + '"></i> ' + JW.escapeHTML(notif.titulo || "Notificação"),
       '<div class="notification-detail">' +
-        '<p class="text-muted">' + JW.escapeHTML(notif.dataEnvio || "") + '</p>' +
+        '<p class="text-muted">' + JW.escapeHTML(JW.somenteData(notif.dataEnvio || "")) + '</p>' +
         '<p>' + JW.escapeHTML(notif.mensagem || "") + '</p>' +
         (notif.acao ? '<button class="notification-action-link" onclick="JW.executarAcaoNotificacao(' + JW.attrJs(notif.id) + ')"><i class="fas fa-arrow-right"></i> ' + JW.escapeHTML(JW.textoAcaoNotificacao(notif)) + '</button>' : '') +
       '</div>',
@@ -1985,7 +3772,7 @@
       await JW.chamarGoogleScript("marcarTodasNotificacoesLidasV3", JW.usuarioLogado.email);
       await JW.carregarNotificacoes();
     } catch (error) {
-      JW.toast("Nao foi possivel marcar notificacoes.", "error");
+      JW.toast("Não foi possível marcar notificações.", "error");
     }
   };
 
@@ -1998,6 +3785,24 @@
     JW.carregarPerfil();
   };
 
+  JW.separarEnderecoPerfil = function(endereco) {
+    var texto = String(endereco || "").trim();
+    if (!texto) return { rua: "", numero: "", cidade: "" };
+    var partes = texto.split(",").map(function(item) { return String(item || "").trim(); }).filter(Boolean);
+    return {
+      rua: partes[0] || "",
+      numero: partes[1] || "",
+      cidade: partes.slice(2).join(", ")
+    };
+  };
+
+  JW.montarEnderecoPerfil = function() {
+    var rua = ((document.getElementById("perfilRua") || {}).value || "").trim();
+    var numero = ((document.getElementById("perfilNumero") || {}).value || "").trim();
+    var cidade = ((document.getElementById("perfilCidade") || {}).value || "").trim();
+    return [rua, numero, cidade].filter(Boolean).join(", ");
+  };
+
   JW.carregarPerfil = async function() {
     if (!JW.usuarioLogado) return;
     JW.mostrarLoading("Carregando perfil...");
@@ -2005,9 +3810,14 @@
       var perfil = await JW.chamarGoogleScript("getPerfilUsuarioV3", JW.usuarioLogado.email);
       JW.esconderLoading();
       perfil = perfil || {};
+      var enderecoSeparado = JW.separarEnderecoPerfil(perfil.endereco || JW.usuarioLogado.endereco || "");
       JW.abrirModalSistema(
         '<i class="fas fa-user-circle"></i> Meu perfil',
         '<div class="profile-modal-body">' +
+        '<div class="profile-modal-hero">' +
+          JW.avatarChatHtml(perfil.usuario || JW.usuarioLogado.usuario || "Usuario", perfil.email || JW.usuarioLogado.email || "", "chat-avatar profile-avatar-large", "Usuario") +
+          '<div class="profile-modal-hero-copy"><strong>' + JW.escapeHTML(perfil.usuario || JW.usuarioLogado.usuario || "") + '</strong><span>' + JW.escapeHTML(perfil.email || JW.usuarioLogado.email || "") + '</span></div>' +
+        '</div>' +
         '<div class="profile-grid">' +
           '<div class="profile-field"><span>Nome</span><strong>' + JW.escapeHTML(perfil.usuario || JW.usuarioLogado.usuario || "") + '</strong></div>' +
           '<div class="profile-field"><span>E-mail</span><strong>' + JW.escapeHTML(perfil.email || JW.usuarioLogado.email || "") + '</strong></div>' +
@@ -2015,11 +3825,13 @@
         '</div>' +
         '<div class="profile-edit-grid">' +
           '<div class="form-group"><label class="form-label">Bairro</label><input id="perfilBairro" class="form-input profile-input" value="' + JW.escapeAttr(perfil.bairro || JW.usuarioLogado.bairro || "") + '" placeholder="Inserir bairro"></div>' +
-          '<div class="form-group"><label class="form-label">Rua, numero e cidade</label><textarea id="perfilEndereco" class="form-input profile-input" rows="3" placeholder="Inserir rua, numero e cidade">' + JW.escapeHTML(perfil.endereco || JW.usuarioLogado.endereco || "") + '</textarea></div>' +
+          '<div class="form-group"><label class="form-label">Rua</label><input id="perfilRua" class="form-input profile-input" value="' + JW.escapeAttr(enderecoSeparado.rua || "") + '" placeholder="Inserir rua"></div>' +
+          '<div class="form-group"><label class="form-label">Numero</label><input id="perfilNumero" class="form-input profile-input" value="' + JW.escapeAttr(enderecoSeparado.numero || "") + '" placeholder="Inserir numero"></div>' +
+          '<div class="form-group profile-field-wide"><label class="form-label">Cidade</label><input id="perfilCidade" class="form-input profile-input" value="' + JW.escapeAttr(enderecoSeparado.cidade || "") + '" placeholder="Inserir cidade"></div>' +
         '</div>' +
         '</div>',
         '<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap;">' +
-          '<button class="btn btn-primary" onclick="JW.salvarEnderecoPerfil()">Salvar</button>' +
+          '<button class="btn btn-primary" onclick="JW.salvarEnderecoPerfil()">Salvar perfil</button>' +
         '</div>'
       );
     } catch (error) {
@@ -2030,17 +3842,54 @@
 
   JW.renderMensagensChat = function(mensagens) {
     if (!mensagens || !mensagens.length) return '<p class="text-muted">Nenhuma mensagem ainda.</p>';
+    JW.chatMensagemDetalhes = {};
     var html = "";
     for (var i = 0; i < mensagens.length; i++) {
       var m = mensagens[i];
       var minha = JW.usuarioLogado && m.remetenteEmail === JW.usuarioLogado.email;
-      html += '<div class="chat-message ' + (minha ? "mine" : "theirs") + '"><strong>' + JW.escapeHTML(m.remetenteNome || m.remetenteTipo || "") + '</strong><p>' + JW.escapeHTML(m.mensagem || "") + '</p><span>' + JW.escapeHTML(m.dataHora || "") + '</span></div>';
+      var detalheId = "chat-msg-" + (++JW.chatMensagemDetalhesSeq);
+      JW.chatMensagemDetalhes[detalheId] = {
+        tipo: m.tipo || "texto",
+        dataHora: m.dataHora || "",
+        remetenteNome: m.remetenteNome || "",
+        remetenteTipo: m.remetenteTipo || "",
+        clienteNome: m.clienteNome || "",
+        mensagem: m.mensagem || ""
+      };
+      var conteudo = m.mensagem ? '<p>' + JW.escapeHTML(m.mensagem || "") + '</p>' : '';
+      if (m.tipo === "audio" && m.audioDataUrl) {
+        conteudo = '<div class="chat-message-media-label"><i class="fas fa-microphone"></i> Audio</div><audio class="chat-audio-message" controls src="' + JW.escapeAttr(m.audioDataUrl) + '"></audio>';
+      } else if (m.tipo === "imagem" && m.imagemDataUrl) {
+        conteudo = '<img class="chat-image-message" src="' + JW.escapeAttr(m.imagemDataUrl) + '" alt="Imagem enviada">' + (m.mensagem ? '<p>' + JW.escapeHTML(m.mensagem) + '</p>' : '');
+      }
+      html += '<div class="chat-message ' + (minha ? "mine" : "theirs") + '">' +
+        '<div class="chat-message-content">' + conteudo + '</div>' +
+        '<button class="chat-message-details-btn" type="button" onclick="JW.abrirDetalhesMensagemChat(' + JW.attrJs(detalheId) + ')"><i class="fas fa-circle-info"></i> Detalhes</button>' +
+      '</div>';
     }
     return html;
   };
 
+  JW.abrirDetalhesMensagemChat = function(id) {
+    var dados = JW.chatMensagemDetalhes[id];
+    if (!dados) return;
+    var tituloTipo = String(dados.tipo || "texto").toUpperCase();
+    JW.abrirModalSistema(
+      '<i class="fas fa-circle-info"></i> Detalhes da mensagem',
+      '<div class="notification-detail">' +
+        '<div class="mini-summary-grid">' +
+          '<div><span>TIPO</span><strong>' + JW.escapeHTML(tituloTipo) + '</strong></div>' +
+          '<div><span>REMETENTE</span><strong>' + JW.escapeHTML(dados.remetenteNome || dados.clienteNome || "Usuario") + '</strong></div>' +
+          '<div><span>DATA</span><strong>' + JW.escapeHTML(JW.somenteData(dados.dataHora || "-")) + '</strong></div>' +
+        '</div>' +
+        (dados.mensagem ? '<div class="history-note" style="margin-top:1rem;white-space:pre-wrap;">' + JW.escapeHTML(dados.mensagem) + '</div>' : '<p class="text-muted" style="margin-top:1rem;">Mensagem sem texto complementar.</p>') +
+      '</div>',
+      '<div class="modal-actions"><button class="btn btn-secondary" onclick="JW.fecharModalSistema()">Fechar</button></div>'
+    );
+  };
+
   JW.salvarEnderecoPerfil = async function() {
-    var endereco = (document.getElementById("perfilEndereco") || {}).value || "";
+    var endereco = JW.montarEnderecoPerfil();
     var bairro = (document.getElementById("perfilBairro") || {}).value || "";
     JW.mostrarLoading("Salvando endereco...");
     try {
@@ -2061,6 +3910,31 @@
     return JW.enviarMensagemChatCliente();
   };
 
+  JW.renderChatClientePainel = function() {
+    return '<div class="client-chat-page">' +
+      '<div class="chat-panel-header">' +
+        JW.logoAvatarHtml("chat-avatar chat-avatar-large chat-avatar-brand") +
+        '<div class="chat-panel-title-block"><strong>Atendimento</strong><div class="chat-header-meta">Conversa direta com a equipe</div></div>' +
+        '<div class="chat-header-actions"><button class="chat-header-icon" type="button" onclick="JW.fecharChatCliente()" title="Fechar chat"><i class="fas fa-times"></i></button></div>' +
+      '</div>' +
+      '<div class="chat-panel-body">' +
+        '<div class="chat-history" id="chatHistoryCliente"><p class="text-muted">Carregando conversa...</p></div>' +
+        '<div class="chat-typing-indicator" id="chatTypingCliente"></div>' +
+        JW.renderChatCompose("cliente", "chatMensagemCliente", "Digite sua mensagem") +
+      '</div>' +
+    '</div>';
+  };
+
+  JW.carregarChatClientePagina = async function() {
+    if (!JW.usuarioLogado || JW.isAdmin()) {
+      JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
+      return;
+    }
+    JW.setTitulo("Chat");
+    JW.renderMain(JW.renderChatClientePainel());
+    await JW.abrirChatCliente();
+  };
+
   JW.renderChatWidget = function() {
     var existente = document.getElementById("supportChatWidget");
     if (!JW.usuarioLogado) {
@@ -2073,17 +3947,42 @@
     widget.className = "support-chat-widget";
     var admin = JW.isAdmin();
     widget.innerHTML =
-      '<button class="support-chat-button" id="supportChatButton" onclick="' + (admin ? 'JW.abrirChatAdminFlutuante()' : 'JW.abrirChatCliente()') + '" title="' + (admin ? 'Mensagens de clientes' : 'Falar com a equipe JW Piscinas') + '"><i class="fas fa-comments"></i><span id="supportChatBadge" class="support-chat-badge d-none">1</span></button>' +
-      '<div class="support-chat-window" id="supportChatWindow">' +
-        '<div class="support-chat-header" id="supportChatDragHandle"><strong>' + (admin ? 'Mensagens diretas' : 'Suporte JW Piscinas') + '</strong><button onclick="JW.fecharChatCliente()" title="Fechar">&times;</button></div>' +
-        (admin
-          ? '<div class="chat-history" id="chatHistoryAdminFloat"><p class="text-muted">Abra para carregar as conversas.</p></div>'
-          : '<div class="chat-history" id="chatHistoryCliente"><p class="text-muted">Abra para carregar a conversa.</p></div><div class="support-chat-compose"><textarea id="chatMensagemCliente" class="form-input" rows="3" placeholder="Digite sua mensagem"></textarea><button class="btn btn-primary" onclick="JW.enviarMensagemChatCliente()"><i class="fas fa-paper-plane"></i></button></div>') +
-      '</div>';
+      '<div class="support-chat-window" id="supportChatWindow"></div>' +
+      '<button class="support-chat-button" id="supportChatButton" onclick="JW.toggleChatFlutuante()" title="' + (admin ? 'Mensagens de clientes' : 'Falar com a equipe JW Piscinas') + '">' + JW.logoAvatarHtml("support-chat-brand-icon") + '<span id="supportChatBadge" class="support-chat-badge d-none">1</span></button>';
     document.body.appendChild(widget);
     JW.habilitarArrasteChat(widget);
+    JW.atualizarBotaoChatFlutuante(false);
     if (admin) JW.carregarBadgeMensagensAdmin();
     else JW.atualizarBadgeChat();
+  };
+
+  JW.atualizarBotaoChatFlutuante = function(aberto) {
+    var btn = document.getElementById("supportChatButton");
+    var badge = document.getElementById("supportChatBadge");
+    if (!btn) return;
+    var texto = badge ? badge.textContent : "";
+    var oculto = !badge || badge.classList.contains("d-none");
+    btn.innerHTML = (aberto ? '<i class="fas fa-times"></i>' : JW.logoAvatarHtml("support-chat-brand-icon")) + '<span id="supportChatBadge" class="support-chat-badge' + (oculto ? ' d-none' : '') + '">' + JW.escapeHTML(texto || "") + '</span>';
+  };
+
+  JW.prepararJanelaChatExpandida = function() {
+    var widget = document.getElementById("supportChatWidget");
+    if (!widget) return;
+    widget.style.left = "";
+    widget.style.top = "";
+    widget.style.right = "";
+    widget.style.bottom = "";
+  };
+
+  JW.toggleChatFlutuante = function() {
+    var widget = document.getElementById("supportChatWidget");
+    if (widget && widget.classList.contains("open")) {
+      widget.classList.remove("open");
+      JW.atualizarBotaoChatFlutuante(false);
+      return;
+    }
+    if (JW.isAdmin()) JW.abrirChatAdminFlutuante();
+    else JW.abrirChatCliente();
   };
 
   JW.habilitarArrasteChat = function(widget) {
@@ -2099,6 +3998,7 @@
 
     handle.addEventListener("pointerdown", function(e) {
       if (e.button !== undefined && e.button !== 0) return;
+      if (widget.classList.contains("open")) return;
       arrastando = true;
       iniciou = false;
       startX = e.clientX;
@@ -2133,42 +4033,73 @@
   };
 
   JW.abrirChatAdminFlutuante = async function() {
+    JW.fecharMusicaAmbiente();
     JW.renderChatWidget();
+    JW.prepararJanelaChatExpandida();
     var widget = document.getElementById("supportChatWidget");
-    var hist = document.getElementById("chatHistoryAdminFloat");
-    if (widget) widget.classList.add("open");
-    if (!hist) return;
-    if (JW.observarConversasAdminFirebase("chatHistoryAdminFloat")) {
-      hist.innerHTML = '<p class="text-muted">Conectando ao Firebase...</p>';
+    var janela = document.getElementById("supportChatWindow");
+    if (widget) {
+      widget.classList.add("open");
+      JW.atualizarBotaoChatFlutuante(true);
+    }
+    if (!janela) return;
+    if (!document.getElementById("adminChatPanel")) {
+      janela.innerHTML = '<div class="admin-whatsapp-layout floating-chat-layout">' +
+        '<aside class="admin-chat-list-panel">' +
+          '<div class="admin-chat-mobile-header"><strong>Conversas</strong><button class="chat-header-icon" type="button" onclick="JW.fecharChatWidget()"><i class="fas fa-times"></i></button></div>' +
+          '<div class="admin-chat-toolbar"><input id="adminChatSearch" class="admin-chat-search" placeholder="Pesquisar conversa" oninput="JW.filtrarConversasAdmin(this.value)">' + JW.renderFiltrosConversasAdmin() + '</div>' +
+          '<div id="adminConversasFirebase" class="admin-chat-list"><p class="text-muted" style="padding:1rem;">Conectando ao Firebase...</p></div>' +
+        '</aside>' +
+        '<div class="admin-chat-panel" id="adminChatPanel">' + JW.renderAdminChatVazio() + '</div>' +
+      '</div>';
+    }
+    JW.chatAdminMobileView = "lista";
+    JW.atualizarLayoutChatAdminMobile();
+    if (JW.observarConversasAdminFirebase("adminConversasFirebase")) {
       return;
     }
-    hist.innerHTML = '<p class="text-muted">Carregando conversas...</p>';
+    var lista = document.getElementById("adminConversasFirebase");
+    if (lista) lista.innerHTML = '<p class="text-muted" style="padding:1rem;">Carregando conversas...</p>';
     try {
       var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
       var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
-      hist.innerHTML = JW.renderConversasAdmin(conversas);
+      JW.conversasAdminCache = conversas;
+      if (lista) lista.innerHTML = JW.renderConversasAdmin(conversas);
       JW.carregarBadgeMensagensAdmin();
     } catch (error) {
-      hist.innerHTML = '<p class="text-muted">Nao foi possivel carregar as conversas.</p>';
+      if (lista) lista.innerHTML = '<p class="text-muted" style="padding:1rem;">Nao foi possivel carregar as conversas.</p>';
     }
   };
 
   JW.abrirChatCliente = async function() {
+    if (!JW.usuarioLogado) return;
+    JW.fecharMusicaAmbiente();
     JW.renderChatWidget();
+    JW.prepararJanelaChatExpandida();
     var widget = document.getElementById("supportChatWidget");
+    var janela = document.getElementById("supportChatWindow");
+    if (widget) {
+      widget.classList.add("open");
+      JW.atualizarBotaoChatFlutuante(true);
+    }
+    document.body.classList.add("chat-immersive-open");
+    if (janela && !document.getElementById("chatHistoryCliente")) janela.innerHTML = JW.renderChatClientePainel();
     var hist = document.getElementById("chatHistoryCliente");
-    if (widget) widget.classList.add("open");
-    if (!JW.usuarioLogado || !hist) return;
+    if (!hist) {
+      return;
+    }
     if (JW.iniciarFirebaseChat()) {
       hist.innerHTML = '<p class="text-muted">Conectando ao Firebase...</p>';
       JW.observarConversaFirebase(JW.usuarioLogado.email, "chatHistoryCliente");
+      JW.observarDigitandoFirebase(JW.usuarioLogado.email, "chatTypingCliente");
+      JW.bindTypingInput("chatMensagemCliente", JW.usuarioLogado.email);
       return;
     }
     hist.innerHTML = '<p class="text-muted">Carregando conversa...</p>';
     try {
       var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", JW.usuarioLogado.email);
       hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
-      hist.scrollTop = hist.scrollHeight;
+      JW.scrollChatParaFinal("chatHistoryCliente");
       for (var i = 0; i < JW.notificacoes.length; i++) {
         var n = JW.notificacoes[i] || {};
         if (!n.lida && String(n.acao || "").indexOf("chat:") === 0) {
@@ -2184,8 +4115,7 @@
   };
 
   JW.fecharChatCliente = function() {
-    var widget = document.getElementById("supportChatWidget");
-    if (widget) widget.classList.remove("open");
+    JW.fecharChatWidget();
   };
 
   JW.enviarMensagemChatCliente = async function() {
@@ -2205,6 +4135,7 @@
           remetenteTipo: JW.usuarioLogado.tipo || "Cliente",
           mensagem: msg
         });
+        JW.setTypingFirebase(JW.usuarioLogado.email, false);
         if (campo) campo.value = "";
         JW.toast(resultadoFirebase.message || "Mensagem enviada.", "success");
       } catch (error) {
@@ -2224,7 +4155,7 @@
       var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", JW.usuarioLogado.email);
       if (campo) campo.value = "";
       if (hist) hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
-      if (hist) hist.scrollTop = hist.scrollHeight;
+      JW.scrollChatParaFinal("chatHistoryCliente");
       JW.toast(resultado && resultado.message ? resultado.message : "Mensagem enviada.", resultado && resultado.success ? "success" : "error");
     } catch (error) {
       JW.toast("Erro ao enviar mensagem: " + (error.message || error), "error");
@@ -2233,8 +4164,235 @@
     }
   };
 
+  JW.toggleEmojiPicker = function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.toggle("d-none");
+  };
+
+  JW.inserirEmojiChat = function(inputId, emoji) {
+    var campo = document.getElementById(inputId);
+    if (!campo) return;
+    var inicio = campo.selectionStart || campo.value.length;
+    var fim = campo.selectionEnd || campo.value.length;
+    campo.value = campo.value.slice(0, inicio) + emoji + campo.value.slice(fim);
+    campo.focus();
+    campo.selectionStart = campo.selectionEnd = inicio + emoji.length;
+    campo.dispatchEvent(new Event("input"));
+  };
+
+  JW.enviarImagemChat = function(contexto, input) {
+    var arquivo = input && input.files && input.files[0];
+    if (!arquivo) return;
+    if (!JW.iniciarFirebaseChat()) {
+      JW.toast("Imagem no chat depende do Firebase em tempo real.", "error");
+      input.value = "";
+      return;
+    }
+    if (!/^image\//.test(arquivo.type || "")) {
+      JW.toast("Selecione uma imagem.", "error");
+      input.value = "";
+      return;
+    }
+    if (arquivo.size > 900000) {
+      JW.toast("Imagem muito grande. Envie uma imagem menor.", "error");
+      input.value = "";
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = async function() {
+      try {
+        var dadosBase = {
+          email: JW.usuarioLogado.email,
+          usuario: JW.usuarioLogado.usuario,
+          tipo: "imagem",
+          mensagem: "",
+          imagemDataUrl: reader.result,
+          mimeType: arquivo.type || "image/png"
+        };
+        if (contexto === "admin") {
+          if (!JW.chatClienteAtual) throw new Error("Abra uma conversa antes de enviar imagem.");
+          dadosBase.remetenteTipo = "Administrador";
+          dadosBase.clienteEmail = JW.chatClienteAtual;
+        } else {
+          dadosBase.remetenteTipo = JW.usuarioLogado.tipo || "Cliente";
+        }
+        await JW.enviarMensagemFirebase(dadosBase);
+        JW.toast("Imagem enviada.", "success");
+      } catch (error) {
+        JW.toast("Erro ao enviar imagem: " + (error.message || error), "error");
+      } finally {
+        input.value = "";
+      }
+    };
+    reader.readAsDataURL(arquivo);
+  };
+
+  JW.getClienteEmailChatContexto = function(contexto) {
+    return contexto === "admin" ? JW.chatClienteAtual : (JW.usuarioLogado && JW.usuarioLogado.email);
+  };
+
+  JW.iniciarGravacaoPress = function(event, contexto) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (JW.audioRecorder && JW.audioRecorder.state === "recording") {
+      JW.pararGravacaoAudioChat();
+      return;
+    }
+    JW.audioRecordingPointerId = event ? event.pointerId : null;
+    JW.audioRecordingStartX = event ? event.clientX : 0;
+    JW.audioRecordingLocked = false;
+    if (event && event.currentTarget && event.currentTarget.setPointerCapture) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    JW.iniciarGravacaoAudioChat(contexto);
+  };
+
+  JW.moverGravacaoPress = function(event) {
+    if (!JW.audioRecorder || JW.audioRecorder.state !== "recording") return;
+    if (JW.audioRecordingPointerId !== null && event.pointerId !== JW.audioRecordingPointerId) return;
+    if (JW.audioRecordingStartX - event.clientX > 70) {
+      JW.audioRecordingLocked = true;
+      JW.atualizarBarraGravacao();
+    }
+  };
+
+  JW.finalizarGravacaoPress = function(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!JW.audioRecorder || JW.audioRecorder.state !== "recording") return;
+    if (!JW.audioRecordingLocked) JW.pararGravacaoAudioChat();
+  };
+
+  JW.iniciarGravacaoAudioChat = async function(contexto) {
+    if (JW.audioRecorder && JW.audioRecorder.state === "recording") {
+      JW.pararGravacaoAudioChat();
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      JW.toast("Microfone nao suportado neste navegador.", "error");
+      return;
+    }
+    if (!JW.iniciarFirebaseChat()) {
+      JW.toast("Audio no chat depende do Firebase em tempo real.", "error");
+      return;
+    }
+    var clienteEmail = JW.getClienteEmailChatContexto(contexto);
+    if (contexto === "admin" && !clienteEmail) {
+      JW.toast("Abra uma conversa antes de gravar audio.", "error");
+      return;
+    }
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      JW.audioChunks = [];
+      JW.audioRecordingStream = stream;
+      JW.audioRecordingContext = contexto;
+      var recorder = new MediaRecorder(stream);
+      JW.audioRecorder = recorder;
+      recorder.ondataavailable = function(event) {
+        if (event.data && event.data.size) JW.audioChunks.push(event.data);
+      };
+      recorder.onstop = function() {
+        stream.getTracks().forEach(function(track) { track.stop(); });
+        JW.setRecordingFirebase(clienteEmail, false);
+        JW.esconderBarraGravacao();
+        JW.enviarAudioGravadoChat(contexto, recorder.mimeType || "audio/webm");
+        JW.audioRecorder = null;
+        JW.audioRecordingStream = null;
+        JW.audioRecordingPointerId = null;
+      };
+      recorder.start();
+      JW.audioRecordingStartedAt = Date.now();
+      JW.setRecordingFirebase(clienteEmail, true);
+      JW.mostrarBarraGravacao(contexto);
+    } catch (error) {
+      JW.setRecordingFirebase(clienteEmail, false);
+      JW.esconderBarraGravacao();
+      JW.toast("Nao foi possivel acessar o microfone: " + (error.message || error), "error");
+    }
+  };
+
+  JW.toggleGravacaoAudioChat = JW.iniciarGravacaoAudioChat;
+
+  JW.pararGravacaoAudioChat = function() {
+    if (JW.audioRecorder && JW.audioRecorder.state === "recording") {
+      JW.audioRecorder.stop();
+    }
+  };
+
+  JW.mostrarBarraGravacao = function(contexto) {
+    JW.atualizarBarraGravacao();
+    if (JW.audioRecordingTimer) window.clearInterval(JW.audioRecordingTimer);
+    JW.audioRecordingTimer = window.setInterval(JW.atualizarBarraGravacao, 500);
+  };
+
+  JW.atualizarBarraGravacao = function() {
+    var contexto = JW.audioRecordingContext || "cliente";
+    var barra = document.getElementById("chatRecording" + contexto);
+    var tempo = document.getElementById("chatRecordingTempo" + contexto);
+    var btn = document.querySelector('.chat-mic-btn[data-contexto="' + contexto + '"]');
+    if (barra) {
+      barra.classList.remove("d-none");
+      barra.classList.toggle("locked", !!JW.audioRecordingLocked);
+      var detalhe = barra.querySelector("small");
+      if (detalhe) detalhe.textContent = JW.audioRecordingLocked ? "Gravacao travada. Clique no microfone para enviar." : "Arraste para a esquerda para travar";
+    }
+    if (btn) btn.classList.add("recording");
+    if (tempo && JW.audioRecordingStartedAt) tempo.textContent = Math.max(0, Math.floor((Date.now() - JW.audioRecordingStartedAt) / 1000)) + "s";
+  };
+
+  JW.esconderBarraGravacao = function() {
+    if (JW.audioRecordingTimer) window.clearInterval(JW.audioRecordingTimer);
+    JW.audioRecordingTimer = null;
+    var barras = document.querySelectorAll(".chat-recording-bar");
+    for (var i = 0; i < barras.length; i++) barras[i].classList.add("d-none");
+    var botoes = document.querySelectorAll(".chat-mic-btn.recording");
+    for (var j = 0; j < botoes.length; j++) botoes[j].classList.remove("recording");
+    JW.audioRecordingLocked = false;
+  };
+
+  JW.enviarAudioGravadoChat = function(contexto, mimeType) {
+    var blob = new Blob(JW.audioChunks || [], { type: mimeType || "audio/webm" });
+    if (!blob.size) {
+      JW.toast("Audio vazio.", "error");
+      return;
+    }
+    if (blob.size > 900000) {
+      JW.toast("Audio muito grande. Grave uma mensagem mais curta.", "error");
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = async function() {
+      try {
+        var dadosBase = {
+          email: JW.usuarioLogado.email,
+          usuario: JW.usuarioLogado.usuario,
+          tipo: "audio",
+          mensagem: "Audio",
+          audioDataUrl: reader.result,
+          mimeType: mimeType || "audio/webm"
+        };
+        if (contexto === "admin") {
+          if (!JW.chatClienteAtual) throw new Error("Abra uma conversa antes de enviar audio.");
+          dadosBase.remetenteTipo = "Administrador";
+          dadosBase.clienteEmail = JW.chatClienteAtual;
+        } else {
+          dadosBase.remetenteTipo = JW.usuarioLogado.tipo || "Cliente";
+        }
+        await JW.enviarMensagemFirebase(dadosBase);
+        JW.toast("Audio enviado.", "success");
+      } catch (error) {
+        JW.toast("Erro ao enviar audio: " + (error.message || error), "error");
+      }
+    };
+    reader.readAsDataURL(blob);
+  };
+
   JW.logout = function() {
-    ["adminConversasRef", "adminConversaRef", "clienteConversaRef", "clienteBadgeRef"].forEach(function(refName) {
+    ["adminConversasRef", "adminConversaRef", "clienteConversaRef", "clienteBadgeRef", "typingRef"].forEach(function(refName) {
       if (JW.firebaseChat && JW.firebaseChat[refName]) {
         JW.firebaseChat[refName].off();
         JW.firebaseChat[refName] = null;
@@ -2245,6 +4403,7 @@
     document.body.classList.remove("admin-mode");
     document.body.classList.remove("sidebar-collapsed");
     document.body.classList.remove("sidebar-open");
+    JW.fecharMusicaAmbiente();
     var chatWidget = document.getElementById("supportChatWidget");
     if (chatWidget && chatWidget.parentNode) chatWidget.parentNode.removeChild(chatWidget);
     var loginScreen = document.getElementById("loginScreen");
@@ -2256,6 +4415,7 @@
   window.addEventListener("load", function() {
     var overlay = document.getElementById("loadingOverlay");
     if (overlay) overlay.classList.remove("active");
+    JW.inicializarPWA();
 
     var btnLogin = document.getElementById("btnLogin");
     var btnRegister = document.getElementById("btnRegister");

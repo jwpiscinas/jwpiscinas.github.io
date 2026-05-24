@@ -5,3 +5,6 @@ index.html
 firebase.json
 database.rules.json
 .firebaserc
+sw.js
+manifest.webmanifest
+jw-logo-*.png
