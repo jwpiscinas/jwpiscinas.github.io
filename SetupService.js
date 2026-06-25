@@ -16,6 +16,10 @@ function configurarSistemaInicial() {
     try { getAbaPagamentos(); abasCriadas.push("Pagamentos"); } catch(e) {}
     try { getAbaServicos(); abasCriadas.push("Servicos"); } catch(e) {}
     try { getAbaNotificacoes(); abasCriadas.push("Notificacoes"); } catch(e) {}
+    try { getAbaItensCobrancaFinanceiroV3_(); abasCriadas.push("ItensCobranca"); } catch(e) {}
+    try { getAbaLancamentosFinanceirosV3_(); abasCriadas.push("LancamentosFinanceiros"); } catch(e) {}
+    try { getAbaAssinaturasMensaisFinanceiroV3_(); abasCriadas.push("AssinaturasMensais"); } catch(e) {}
+    try { getAbaCobrancasFinanceiroV3_(); abasCriadas.push("CobrancasClientes"); } catch(e) {}
     
     // NOVAS ABAS
     try { getAbaTecnicos(); abasCriadas.push("Tecnicos"); } catch(e) {}

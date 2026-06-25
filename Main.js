@@ -7,6 +7,12 @@ function doGet(e) {
       return servirAsset_(e.parameter.asset);
     }
 
+    if (e && e.parameter && e.parameter.api === "health") {
+      return ContentService
+        .createTextOutput(JSON.stringify(getFirebaseAppDataHealth_(), null, 2))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Retornar o HTML processado CORRETAMENTE
     return HtmlService
       .createTemplateFromFile('AppIndex')

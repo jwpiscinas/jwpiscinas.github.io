@@ -3,6 +3,10 @@
 // Obter aba de notificações
 function getAbaNotificacoes() {
   try {
+    if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+      return getFirestoreSheetAdapter_("Notificacoes");
+    }
+
     var planilha = SpreadsheetApp.getActiveSpreadsheet();
     var aba = planilha.getSheetByName("Notificacoes");
     

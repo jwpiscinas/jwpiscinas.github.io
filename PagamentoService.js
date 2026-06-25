@@ -1,6 +1,10 @@
 // PagamentoService.gs - Adicionar função
 
 function getAbaPagamentos() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("Pagamentos");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("Pagamentos");
 

@@ -9,15 +9,20 @@ function formatarDataSistema_(data) {
 
 function logEvent(tipo, usuario, acao, detalhes) {
   try {
-    var planilha = SpreadsheetApp.getActiveSpreadsheet();
-    var aba = planilha.getSheetByName("LogsSistema");
+    var aba;
+    if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+      aba = getFirestoreSheetAdapter_("LogsSistema");
+    } else {
+      var planilha = SpreadsheetApp.getActiveSpreadsheet();
+      aba = planilha.getSheetByName("LogsSistema");
 
-    if (!aba) {
-      aba = planilha.insertSheet("LogsSistema");
-      aba.getRange("A1:E1").setValues([[
-        "DataHora", "Tipo", "Usuario", "Acao", "Detalhes"
-      ]]);
-      aba.setFrozenRows(1);
+      if (!aba) {
+        aba = planilha.insertSheet("LogsSistema");
+        aba.getRange("A1:E1").setValues([[
+          "DataHora", "Tipo", "Usuario", "Acao", "Detalhes"
+        ]]);
+        aba.setFrozenRows(1);
+      }
     }
 
     var detalhesStr = "";
@@ -109,6 +114,10 @@ var HISTORICO_GERAL_HEADERS = [
 ];
 
 function getAbaHistoricoGeral() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("HistoricoGeral");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName(HISTORICO_GERAL_SHEET_NAME);
 
@@ -1174,9 +1183,7 @@ function parseProdutosCompraV3_(produtosJson) {
 
 function getPagamentosPendentesV3_() {
   try {
-    var planilha = SpreadsheetApp.getActiveSpreadsheet();
-    var aba = planilha.getSheetByName("Pagamentos");
-    if (!aba) return [];
+    var aba = getAbaPagamentos();
     var dados = aba.getDataRange().getValues();
     var pagamentos = [];
 
@@ -1570,6 +1577,10 @@ function atualizarEnderecoUsuarioV3(email, endereco, bairro) {
 }
 
 function getAbaChatV3_() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("MensagensChat");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("MensagensChat");
   var cabecalhos = [

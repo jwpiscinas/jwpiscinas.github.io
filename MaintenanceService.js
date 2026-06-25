@@ -21,6 +21,31 @@ function reorganizarSistemaPreservandoProdutos(confirmacao) {
 
   var limpas = [];
 
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    for (var firebaseIndex = 0; firebaseIndex < abasParaLimpar.length; firebaseIndex++) {
+      var sheetName = abasParaLimpar[firebaseIndex];
+      try {
+        clearFirestoreSheetData_(sheetName);
+        limpas.push(sheetName);
+      } catch (firebaseError) {}
+    }
+
+    getAbaUsuarios();
+    getAbaProdutos();
+    getAbaOrcamentos();
+    getAbaCompras();
+    getAbaNotificacoes();
+    criarAbaHistoricoGeral();
+    try { getAbaOrdensServico(); } catch (e1) {}
+    try { getAbaAgenda(); } catch (e2) {}
+
+    return {
+      success: true,
+      message: "Sistema reorganizado no Firestore. A colecao de Produtos foi preservada.",
+      abasLimpas: limpas
+    };
+  }
+
   for (var i = 0; i < abasParaLimpar.length; i++) {
     var aba = planilha.getSheetByName(abasParaLimpar[i]);
     if (!aba) continue;

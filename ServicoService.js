@@ -1,5 +1,9 @@
 // Obter aba de serviços
 function getAbaServicos() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("Servicos");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("Servicos");
   if (!aba) {

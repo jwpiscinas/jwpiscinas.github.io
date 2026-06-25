@@ -3,6 +3,10 @@
 // 1. ABA DE USUÁRIOS
 function getAbaUsuarios() {
   try {
+    if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+      return getFirestoreSheetAdapter_("Usuarios");
+    }
+
     var planilha = SpreadsheetApp.getActiveSpreadsheet();
     var aba = planilha.getSheetByName("Usuarios");
     
@@ -72,6 +76,10 @@ function isUsuarioAdmin_(linha) {
 // 2. ABA DE TELEFONES AUTORIZADOS
 function getAbaTelefonesAutorizados() {
   try {
+    if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+      return getFirestoreSheetAdapter_("TelefonesAutorizados");
+    }
+
     var planilha = SpreadsheetApp.getActiveSpreadsheet();
     var aba = planilha.getSheetByName("TelefonesAutorizados");
     

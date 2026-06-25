@@ -1,5 +1,9 @@
 // Obter aba de manuais
 function getAbaManuais() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("Manuais");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("Manuais");
   if (!aba) {

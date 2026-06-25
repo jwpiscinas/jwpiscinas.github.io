@@ -2,6 +2,10 @@
 
 function getAbaTecnicos() {
   try {
+    if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+      return getFirestoreSheetAdapter_("Tecnicos");
+    }
+
     var planilha = SpreadsheetApp.getActiveSpreadsheet();
     var aba = planilha.getSheetByName("Tecnicos");
     

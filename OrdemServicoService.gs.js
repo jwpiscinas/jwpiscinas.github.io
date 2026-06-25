@@ -2,6 +2,10 @@
 
 function getAbaOrdensServico() {
   try {
+    if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+      return getFirestoreSheetAdapter_("OrdensServico");
+    }
+
     var planilha = SpreadsheetApp.getActiveSpreadsheet();
     var aba = planilha.getSheetByName("OrdensServico");
     

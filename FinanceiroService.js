@@ -112,6 +112,10 @@ function garantirCabecalhosFinanceiroV3_(aba, cabecalhos) {
 }
 
 function getAbaItensCobrancaFinanceiroV3_() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("ItensCobranca");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("ItensCobranca");
   var cabecalhos = [
@@ -145,6 +149,10 @@ function getAbaItensCobrancaFinanceiroV3_() {
 }
 
 function getAbaLancamentosFinanceirosV3_() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("LancamentosFinanceiros");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("LancamentosFinanceiros");
   var cabecalhos = [
@@ -179,6 +187,10 @@ function getAbaLancamentosFinanceirosV3_() {
 }
 
 function getAbaAssinaturasMensaisFinanceiroV3_() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("AssinaturasMensais");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("AssinaturasMensais");
   var cabecalhos = [
@@ -204,6 +216,10 @@ function getAbaAssinaturasMensaisFinanceiroV3_() {
 }
 
 function getAbaCobrancasFinanceiroV3_() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("CobrancasClientes");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("CobrancasClientes");
   var cabecalhos = [

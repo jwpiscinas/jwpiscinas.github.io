@@ -5,6 +5,10 @@ function getAbaOrcamentos() {
   try {
     console.log("📋 Obtendo aba de orçamentos...");
     
+    if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+      return getFirestoreSheetAdapter_("Orcamentos");
+    }
+
     var planilha = SpreadsheetApp.getActiveSpreadsheet();
     var aba = planilha.getSheetByName("Orcamentos");
     
@@ -744,7 +748,7 @@ function enviarEmailOrcamentoRecusado(email, cliente, idOrcamento, tipoServico, 
 // CRIAR PAGAMENTO PARA ORÇAMENTO APROVADO
 function criarPagamentoParaOrcamento(idOrcamento, dados) {
   try {
-    var abaPagamentos = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Pagamentos");
+    var abaPagamentos = getAbaPagamentos();
     
     if (!abaPagamentos) {
       console.log("📁 Aba Pagamentos não encontrada, criando...");

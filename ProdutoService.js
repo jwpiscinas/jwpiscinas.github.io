@@ -2,6 +2,10 @@
 
 // Obter aba de produtos
 function getAbaProdutos() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("Produtos");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("Produtos");
   if (!aba) {
@@ -326,6 +330,10 @@ function atualizarEstoque(produtos) {
 
 // Obter aba de compras
 function getAbaCompras() {
+  if (typeof shouldUseFirebaseAppData_ === "function" && shouldUseFirebaseAppData_()) {
+    return getFirestoreSheetAdapter_("Compras");
+  }
+
   var planilha = SpreadsheetApp.getActiveSpreadsheet();
   var aba = planilha.getSheetByName("Compras");
   if (!aba) {
