@@ -431,6 +431,10 @@
     };
   };
 
+  JW.usandoShellFirebase_ = function() {
+    return /(?:\?|&)host=firebase(?:&|$)/.test(window.location.search || "");
+  };
+
   JW.removerPopupInstalarPWA = function() {
     var popup = document.getElementById("pwaInstallFloating");
     if (popup && popup.parentNode) popup.parentNode.removeChild(popup);
@@ -446,6 +450,10 @@
     var podeInstalar = !!JW.deferredInstallPrompt;
     if (plataforma.ios) {
       return '<div class="pwa-install-stack"><div class="pwa-install-card pwa-install-card-secondary">' +
+        '<div class="pwa-install-callout compact">' +
+          JW.logoAvatarHtml("chat-avatar chat-avatar-logo") +
+          '<div><strong>Instalar JW Piscinas</strong><p>Use o Safari para adicionar este sistema à tela inicial do iPhone.</p></div>' +
+        '</div>' +
         '<div class="pwa-ios-guide">' +
           '<strong>SAFARI NO IPHONE</strong>' +
           '<p>Para usar como app no iPhone, abra este sistema no <b>Safari</b>, toque em <b>Compartilhar</b> e depois em <b>Adicionar à Tela de Início</b>.</p>' +
@@ -463,6 +471,10 @@
       ? '<button class="btn btn-primary" onclick="JW.instalarPWA()"><i class="fas fa-download"></i> Instalar</button>'
       : '<button class="btn btn-secondary" onclick="JW.dispensarPopupInstalarPWA()">Entendi</button>';
     return '<div class="pwa-install-stack"><div class="pwa-install-card">' +
+      '<div class="pwa-install-callout compact">' +
+        JW.logoAvatarHtml("chat-avatar chat-avatar-logo") +
+        '<div><strong>Instalar JW Piscinas</strong><p>Abra o sistema como aplicativo para entrar mais rápido no dia a dia.</p></div>' +
+      '</div>' +
       destaqueAndroid +
       '<div class="modal-actions pwa-install-actions">' +
         acoes +
@@ -486,6 +498,12 @@
     if (JW.pwaInicializado) return;
     JW.pwaInicializado = true;
     JW.aplicarLogoSistema();
+
+    if (JW.usandoShellFirebase_()) {
+      JW.atualizarBotoesInstalarPWA(false);
+      JW.removerPopupInstalarPWA();
+      return;
+    }
 
     window.addEventListener("beforeinstallprompt", function(event) {
       event.preventDefault();
@@ -562,7 +580,7 @@
 
   JW.instalarPWA = async function() {
     if (!JW.deferredInstallPrompt) {
-      JW.toast("Use a opcao Instalar app do navegador se o botao nativo ainda nao apareceu.", "info");
+      JW.toast("Use a opção Instalar app do navegador se o botão nativo ainda não apareceu.", "info");
       return;
     }
     JW.deferredInstallPrompt.prompt();
@@ -673,7 +691,7 @@
     var args = Array.prototype.slice.call(arguments, 1);
     return new Promise(function(resolve, reject) {
       if (!window.google || !google.script || !google.script.run) {
-        reject(new Error("google.script.run nao esta disponivel. Abra pela URL do Web App implantado."));
+        reject(new Error("google.script.run não está disponível. Abra pela URL do Web App implantado."));
         return;
       }
       google.script.run
@@ -1512,7 +1530,7 @@
         + '<a href="#" class="nav-item" data-tab="comunicacao" title="Comunicação"><i class="fas fa-message"></i><span>Comunicação</span></a>'
         + '<a href="#" class="nav-item module-inactive" data-tab="produtos" title="Loja suspensa"><i class="fas fa-shopping-cart"></i><span>Loja</span></a>';
     } else {
-      var html = '<a href="#" class="nav-item" data-tab="inicio" title="Inicio"><i class="fas fa-home"></i><span>Inicio</span></a>'
+      var html = '<a href="#" class="nav-item" data-tab="inicio" title="Início"><i class="fas fa-home"></i><span>Início</span></a>'
         + '<a href="#" class="nav-item" data-tab="solicitar-orcamento" title="Orcamentos"><i class="fas fa-file-invoice-dollar"></i><span>Orcamentos</span></a>'
         + '<a href="#" class="nav-item" data-tab="historico" title="Historico"><i class="fas fa-history"></i><span>Historico</span></a>'
         + '<a href="#" class="nav-item" data-tab="manuais" title="Manuais"><i class="fas fa-book"></i><span>Manuais</span></a>'
@@ -1603,7 +1621,7 @@
       else if (tabBase === "relatorios") await JW.carregarRelatorios(opcoes);
       else if (tabBase === "chat") await JW.carregarChatClientePagina();
       else if (tabBase === "comunicacao" || tabBase === "mensagens" || tabBase === "admin") await JW.carregarMensagensDiretas(opcoes);
-      else JW.renderMain('<div class="card"><h3>Modulo indisponivel</h3></div>');
+      else JW.renderMain('<div class="card"><h3>Módulo indisponível</h3></div>');
     } catch (error) {
       if (navSeq === JW.navSeq) {
         if (tinhaSnapshot) {
@@ -1640,7 +1658,7 @@
       } catch (errorResumo) {
         resumoCliente = {};
       }
-      JW.setTitulo("Inicio");
+      JW.setTitulo("Início");
       JW.renderMain(
         '<section class="client-welcome">' +
           '<div class="client-welcome-mark">' + JW.logoImgHtml("client-welcome-logo") + '</div>' +
@@ -2652,7 +2670,7 @@
       return JW.renderRelatorioListaCompacta(r.clientes || [], function(item) {
         return '<article class="report-detail-item">' +
           '<strong>' + JW.escapeHTML(item.usuario || "Cliente") + '</strong>' +
-          '<div class="text-muted">' + JW.escapeHTML(item.telefone || "Telefone nao informado") + '</div>' +
+          '<div class="text-muted">' + JW.escapeHTML(item.telefone || "Telefone não informado") + '</div>' +
         '</article>';
       }, "Nenhum cliente encontrado.");
     }
@@ -2821,7 +2839,7 @@
     var dados = await JW.obterFinanceiro_(opcoes);
     JW.financeiroDados = dados || {};
     if (!dados || !dados.success) {
-      JW.renderMain('<div class="card"><h3>Financeiro indisponivel</h3><p class="text-muted">' + JW.escapeHTML((dados && dados.message) || "Nao foi possivel carregar o modulo.") + '</p></div>');
+      JW.renderMain('<div class="card"><h3>Financeiro indisponível</h3><p class="text-muted">' + JW.escapeHTML((dados && dados.message) || "Não foi possível carregar o módulo.") + '</p></div>');
       return;
     }
 
@@ -4239,7 +4257,7 @@
         '<div class="profile-edit-grid">' +
           '<div class="form-group"><label class="form-label">Bairro</label><input id="perfilBairro" class="form-input profile-input" value="' + JW.escapeAttr(perfil.bairro || JW.usuarioLogado.bairro || "") + '" placeholder="Inserir bairro"></div>' +
           '<div class="form-group"><label class="form-label">Rua</label><input id="perfilRua" class="form-input profile-input" value="' + JW.escapeAttr(enderecoSeparado.rua || "") + '" placeholder="Inserir rua"></div>' +
-          '<div class="form-group"><label class="form-label">Numero</label><input id="perfilNumero" class="form-input profile-input" value="' + JW.escapeAttr(enderecoSeparado.numero || "") + '" placeholder="Inserir numero"></div>' +
+          '<div class="form-group"><label class="form-label">Número</label><input id="perfilNumero" class="form-input profile-input" value="' + JW.escapeAttr(enderecoSeparado.numero || "") + '" placeholder="Inserir número"></div>' +
           '<div class="form-group profile-field-wide"><label class="form-label">Cidade</label><input id="perfilCidade" class="form-input profile-input" value="' + JW.escapeAttr(enderecoSeparado.cidade || "") + '" placeholder="Inserir cidade"></div>' +
         '</div>' +
         '</div>',
@@ -4655,7 +4673,7 @@
       return;
     }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
-      JW.toast("Microfone nao suportado neste navegador.", "error");
+      JW.toast("Microfone não suportado neste navegador.", "error");
       return;
     }
     var clienteEmail = JW.getClienteEmailChatContexto(contexto);
