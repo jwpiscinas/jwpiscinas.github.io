@@ -2448,6 +2448,9 @@
       font-size: 1.35rem;
       box-shadow: var(--shadow-lg);
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       position: relative;
       touch-action: none;
       user-select: none;
@@ -3074,6 +3077,7 @@
       font-weight: 800;
       letter-spacing: .02em;
       flex: 0 0 auto;
+      overflow: hidden;
       user-select: none;
     }
 
@@ -3082,6 +3086,13 @@
       height: 40px;
       background: linear-gradient(135deg, var(--primary), #14b8a6);
       color: #fff;
+    }
+
+    .chat-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
     }
 
     .chat-avatar-large {
@@ -3432,6 +3443,20 @@
       grid-template-columns: auto minmax(0, 1fr);
       gap: .9rem;
       align-items: center;
+    }
+
+    .pwa-install-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #0077b6, #14b8a6);
+      color: #fff;
+      box-shadow: 0 12px 28px rgba(0, 119, 182, 0.22);
+      font-size: 1.35rem;
+    }
+
+    .pwa-install-icon i {
+      line-height: 1;
     }
 
     .pwa-platform-badge {
@@ -3826,6 +3851,7 @@
       text-overflow: ellipsis;
     }
 
+    .support-chat-launcher-icon,
     .support-chat-brand-icon,
     .chat-avatar-brand {
       width: 100%;
@@ -3837,6 +3863,13 @@
       justify-content: center;
       background: #fff;
       padding: .28rem;
+    }
+
+    .support-chat-launcher-icon {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      font-size: 1.28rem;
     }
 
     .support-chat-brand-icon img,

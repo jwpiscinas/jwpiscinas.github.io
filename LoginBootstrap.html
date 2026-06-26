@@ -116,6 +116,12 @@
     '</span>';
   };
 
+  JW.iconAvatarHtml = function(iconClass, classe) {
+    return '<span class="' + JW.escapeAttr(classe || "chat-avatar") + '">' +
+      '<i class="' + JW.escapeAttr(iconClass || "fas fa-comment-dots") + '"></i>' +
+    '</span>';
+  };
+
   JW.nomeExibicaoChat = function(nome, email, fallback) {
     var texto = String(nome || "").trim();
     if (!texto) texto = String(email || fallback || "Usuario").trim();
@@ -451,7 +457,7 @@
     if (plataforma.ios) {
       return '<div class="pwa-install-stack"><div class="pwa-install-card pwa-install-card-secondary">' +
         '<div class="pwa-install-callout compact">' +
-          JW.logoAvatarHtml("chat-avatar chat-avatar-logo") +
+          JW.iconAvatarHtml("fas fa-mobile-alt", "pwa-install-icon") +
           '<div><strong>Instalar JW Piscinas</strong><p>Use o Safari para adicionar este sistema à tela inicial do iPhone.</p></div>' +
         '</div>' +
         '<div class="pwa-ios-guide">' +
@@ -472,7 +478,7 @@
       : '<button class="btn btn-secondary" onclick="JW.dispensarPopupInstalarPWA()">Entendi</button>';
     return '<div class="pwa-install-stack"><div class="pwa-install-card">' +
       '<div class="pwa-install-callout compact">' +
-        JW.logoAvatarHtml("chat-avatar chat-avatar-logo") +
+        JW.iconAvatarHtml("fas fa-download", "pwa-install-icon") +
         '<div><strong>Instalar JW Piscinas</strong><p>Abra o sistema como aplicativo para entrar mais rápido no dia a dia.</p></div>' +
       '</div>' +
       destaqueAndroid +
@@ -501,8 +507,6 @@
 
     if (JW.usandoShellFirebase_()) {
       JW.atualizarBotoesInstalarPWA(false);
-      JW.removerPopupInstalarPWA();
-      return;
     }
 
     window.addEventListener("beforeinstallprompt", function(event) {
@@ -4379,7 +4383,7 @@
     var admin = JW.isAdmin();
     widget.innerHTML =
       '<div class="support-chat-window" id="supportChatWindow"></div>' +
-      '<button class="support-chat-button" id="supportChatButton" onclick="JW.toggleChatFlutuante()" title="' + (admin ? 'Mensagens de clientes' : 'Falar com a equipe JW Piscinas') + '">' + JW.logoAvatarHtml("support-chat-brand-icon") + '<span id="supportChatBadge" class="support-chat-badge d-none">1</span></button>';
+      '<button class="support-chat-button" id="supportChatButton" onclick="JW.toggleChatFlutuante()" title="' + (admin ? 'Mensagens de clientes' : 'Falar com a equipe JW Piscinas') + '">' + JW.iconAvatarHtml("fas fa-comments", "support-chat-launcher-icon") + '<span id="supportChatBadge" class="support-chat-badge d-none">1</span></button>';
     document.body.appendChild(widget);
     JW.habilitarArrasteChat(widget);
     JW.atualizarBotaoChatFlutuante(false);
@@ -4393,7 +4397,7 @@
     if (!btn) return;
     var texto = badge ? badge.textContent : "";
     var oculto = !badge || badge.classList.contains("d-none");
-    btn.innerHTML = (aberto ? '<i class="fas fa-times"></i>' : JW.logoAvatarHtml("support-chat-brand-icon")) + '<span id="supportChatBadge" class="support-chat-badge' + (oculto ? ' d-none' : '') + '">' + JW.escapeHTML(texto || "") + '</span>';
+    btn.innerHTML = (aberto ? '<i class="fas fa-times"></i>' : JW.iconAvatarHtml("fas fa-comments", "support-chat-launcher-icon")) + '<span id="supportChatBadge" class="support-chat-badge' + (oculto ? ' d-none' : '') + '">' + JW.escapeHTML(texto || "") + '</span>';
   };
 
   JW.prepararJanelaChatExpandida = function() {
