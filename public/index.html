@@ -114,8 +114,10 @@
   </div>
 
   <iframe
+    id="jwAppFrame"
     class="jw-app-frame"
-    src="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec"
+    src="about:blank"
+    data-src-base="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec"
     title="JW Piscinas"
     allow="clipboard-read; clipboard-write; fullscreen; microphone"
   ></iframe>
@@ -131,10 +133,17 @@
     const promptEl = document.getElementById("installPrompt");
     const installNow = document.getElementById("installNow");
     const installClose = document.getElementById("installClose");
+    const appFrame = document.getElementById("jwAppFrame");
     const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+    const appBaseUrl = appFrame ? appFrame.getAttribute("data-src-base") || "" : "";
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    }
+
+    if (appFrame && appBaseUrl) {
+      const sep = appBaseUrl.includes("?") ? "&" : "?";
+      appFrame.src = `${appBaseUrl}${sep}host=firebase&cb=${Date.now()}`;
     }
 
     function showInstallPrompt() {
