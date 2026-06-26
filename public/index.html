@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0077B6">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/jw-logo-192.png">
+  <title>JW Piscinas</title>
+  <style>
+    html,
+    body {
+      background: #f6f8fb;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      padding: 0;
+      width: 100%;
+    }
+
+    body {
+      min-height: 100dvh;
+      position: fixed;
+      inset: 0;
+    }
+
+    .jw-app-frame {
+      border: 0;
+      display: block;
+      height: 100dvh;
+      left: 0;
+      min-height: 100svh;
+      position: fixed;
+      top: 0;
+      width: 100vw;
+    }
+
+    .jw-noscript {
+      color: #172033;
+      font-family: Arial, sans-serif;
+      margin: 32px;
+    }
+
+    .install-prompt {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      border-radius: 12px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+      color: #172033;
+      display: none;
+      font-family: Arial, sans-serif;
+      gap: 12px;
+      left: 50%;
+      max-width: calc(100vw - 24px);
+      padding: 12px;
+      position: fixed;
+      top: 12px;
+      transform: translateX(-50%);
+      width: 420px;
+      z-index: 20;
+    }
+
+    .install-prompt.show {
+      display: flex;
+    }
+
+    .install-prompt img {
+      border-radius: 10px;
+      height: 44px;
+      width: 44px;
+    }
+
+    .install-prompt strong,
+    .install-prompt small {
+      display: block;
+    }
+
+    .install-prompt small {
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .install-prompt button {
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      padding: 8px 10px;
+      white-space: nowrap;
+    }
+
+    .install-prompt .install-now {
+      background: #0077B6;
+      color: #fff;
+      margin-left: auto;
+    }
+
+    .install-prompt .install-close {
+      background: #eef2f7;
+      color: #172033;
+    }
+  </style>
+</head>
+<body>
+  <div id="installPrompt" class="install-prompt" role="dialog" aria-label="Instalar aplicativo">
+    <img src="/jw-logo-192.png" alt="">
+    <div>
+      <strong>Instalar JW Piscinas</strong>
+      <small>Abra como aplicativo no computador ou celular.</small>
+    </div>
+    <button id="installNow" class="install-now" type="button">Instalar</button>
+    <button id="installClose" class="install-close" type="button">Agora nao</button>
+  </div>
+
+  <iframe
+    class="jw-app-frame"
+    src="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec"
+    title="JW Piscinas"
+    allow="clipboard-read; clipboard-write; fullscreen; microphone"
+  ></iframe>
+
+  <noscript>
+    <div class="jw-noscript">
+      <p>Ative o JavaScript para abrir o sistema.</p>
+      <p><a href="https://script.google.com/macros/s/AKfycbzVUTdv6k6hGfdhSuyLX_7xVCgvSld12THLQFb75n5fjP9RW1L50YzFzEXk_hf-lGQ/exec">Abrir sistema</a></p>
+    </div>
+  </noscript>
+  <script>
+    let deferredInstallPrompt = null;
+    const promptEl = document.getElementById("installPrompt");
+    const installNow = document.getElementById("installNow");
+    const installClose = document.getElementById("installClose");
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    }
+
+    function showInstallPrompt() {
+      if (!isStandalone && promptEl) promptEl.classList.add("show");
+    }
+
+    window.addEventListener("beforeinstallprompt", (event) => {
+      event.preventDefault();
+      deferredInstallPrompt = event;
+      showInstallPrompt();
+    });
+
+    window.addEventListener("appinstalled", () => {
+      deferredInstallPrompt = null;
+      if (promptEl) promptEl.classList.remove("show");
+    });
+
+    installNow && installNow.addEventListener("click", async () => {
+      if (!deferredInstallPrompt) {
+        showInstallPrompt();
+        return;
+      }
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice.catch(() => undefined);
+      deferredInstallPrompt = null;
+      if (promptEl) promptEl.classList.remove("show");
+    });
+
+    installClose && installClose.addEventListener("click", () => {
+      if (promptEl) promptEl.classList.remove("show");
+    });
+
+    window.setTimeout(showInstallPrompt, 1200);
+  </script>
+</body>
+</html>

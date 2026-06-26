@@ -1174,17 +1174,22 @@
     window.setTimeout(async function() {
       try {
         if (JW.isAdmin()) {
-          await JW.obterProdutos_();
-          await JW.obterManuais_();
-          await JW.obterPendencias_();
-          await JW.obterFinanceiro_();
-          await JW.obterHistoricoNotificacoesAdmin_();
-          await JW.obterTelefonesAutorizados_();
+          await Promise.all([
+            JW.obterProdutos_(),
+            JW.obterManuais_(),
+            JW.obterPendencias_(),
+            JW.obterFinanceiro_(),
+            JW.obterRelatorios_(),
+            JW.obterHistoricoNotificacoesAdmin_(),
+            JW.obterTelefonesAutorizados_()
+          ]);
         } else {
-          await JW.obterResumoCliente_();
-          await JW.obterProdutos_();
-          await JW.obterManuais_();
-          await JW.obterHistorico_();
+          await Promise.all([
+            JW.obterResumoCliente_(),
+            JW.obterProdutos_(),
+            JW.obterManuais_(),
+            JW.obterHistorico_()
+          ]);
         }
       } catch (error) {}
     }, 180);
@@ -2531,10 +2536,14 @@
       return;
     }
 
-    var r = await JW.obterRelatorios_(opcoes);
-    var financeiro = await JW.obterFinanceiro_(opcoes).catch(function() {
-      return null;
-    });
+    var resultados = await Promise.all([
+      JW.obterRelatorios_(opcoes),
+      JW.obterFinanceiro_(opcoes).catch(function() {
+        return null;
+      })
+    ]);
+    var r = resultados[0];
+    var financeiro = resultados[1];
     JW.relatorioDados = r || {};
     JW.relatorioFinanceiroDados = financeiro && financeiro.success ? financeiro : null;
     if (JW.relatorioFinanceiroDados) JW.financeiroDados = JW.relatorioFinanceiroDados;
@@ -3495,12 +3504,17 @@
       return;
     }
 
-    var produtos = await JW.obterProdutos_(opcoes);
+    var resultados = await Promise.all([
+      JW.obterProdutos_(opcoes),
+      JW.obterHistoricoNotificacoesAdmin_(opcoes),
+      JW.obterTelefonesAutorizados_(opcoes)
+    ]);
+    var produtos = resultados[0];
+    var notif = resultados[1];
+    var telefonesResp = resultados[2];
     JW.produtosCache = produtos || [];
-    var notif = await JW.obterHistoricoNotificacoesAdmin_(opcoes);
     var historico = notif && notif.itens ? notif.itens : [];
     JW.historicoNotificacoesAdmin = historico;
-    var telefonesResp = await JW.obterTelefonesAutorizados_(opcoes);
     var options = '<option value="">Sem item vinculado</option>';
     for (var i = 0; i < JW.produtosCache.length; i++) {
       options += '<option value="' + JW.escapeAttr(JW.produtosCache[i].id) + '">' + JW.escapeHTML(JW.produtosCache[i].nome) + '</option>';

@@ -1,5 +1,7 @@
 documentos/**
 tools/*.cjs
+public/**
+.firebase/**
 404.html
 index.html
 firebase.json
