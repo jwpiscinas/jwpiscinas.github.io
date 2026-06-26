@@ -1575,6 +1575,8 @@
     var tabKey = JW.getTabCacheKey_(tab);
     var navSeq = ++JW.navSeq;
     var htmlCache = JW.tabHtmlCache[tabKey];
+    var main = document.getElementById("mainContent");
+    var mainTemConteudo = !!(main && String(main.innerHTML || "").trim());
     var tinhaSnapshot = !!htmlCache;
     JW.navLoading = true;
     JW.activeTab = tabBase;
@@ -1583,7 +1585,7 @@
     JW.fecharNotificacoes();
     JW.marcarMenuAtivo(tabBase);
     if (tinhaSnapshot) JW.renderMain(htmlCache);
-    else if (!JW.temDadosAquecidosParaAba_(tabBase)) JW.renderCarregando("Carregando conteudo...");
+    else if (!JW.temDadosAquecidosParaAba_(tabBase) && !mainTemConteudo) JW.renderCarregando("Carregando conteudo...");
 
     try {
       if (tabBase === "inicio") await JW.carregarInicio(opcoes);
