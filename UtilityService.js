@@ -1585,7 +1585,8 @@ function getAbaChatV3_() {
   var aba = planilha.getSheetByName("MensagensChat");
   var cabecalhos = [
     "ID", "DataHora", "ClienteEmail", "ClienteNome", "RemetenteEmail",
-    "RemetenteNome", "RemetenteTipo", "Mensagem", "LidaCliente", "LidaAdmin"
+    "RemetenteNome", "RemetenteTipo", "Mensagem", "LidaCliente", "LidaAdmin",
+    "Tipo", "AudioDataUrl", "ImagemDataUrl", "MimeType", "Duracao", "Timestamp"
   ];
 
   if (!aba) {
@@ -1607,11 +1608,67 @@ function getAbaChatV3_() {
   return aba;
 }
 
+function flushAbaSeNecessarioV3_(aba) {
+  if (aba && aba.__isFirestoreSheetAdapter) return;
+  SpreadsheetApp.flush();
+}
+
+function valorBooleanoChatV3_(valor) {
+  return String(valorParaTextoV3_(valor)).trim().toLowerCase() === "sim";
+}
+
+function valorNumeroChatV3_(valor) {
+  var numero = parseInt(valor, 10);
+  return isNaN(numero) ? 0 : numero;
+}
+
+function tipoMensagemResumoChatV3_(tipo, mensagem) {
+  if (String(tipo || "").toLowerCase() === "audio") return "Audio";
+  if (String(tipo || "").toLowerCase() === "imagem") return "Imagem";
+  return valorParaTextoV3_(mensagem);
+}
+
+function converterLinhaMensagemChatV3_(linha) {
+  return {
+    id: valorParaTextoV3_(linha[0]),
+    dataHora: valorParaTextoV3_(linha[1]),
+    clienteEmail: valorParaTextoV3_(linha[2]).toLowerCase(),
+    clienteNome: valorParaTextoV3_(linha[3]),
+    remetenteEmail: valorParaTextoV3_(linha[4]).toLowerCase(),
+    remetenteNome: valorParaTextoV3_(linha[5]),
+    remetenteTipo: valorParaTextoV3_(linha[6]),
+    mensagem: valorParaTextoV3_(linha[7]),
+    lidaCliente: valorBooleanoChatV3_(linha[8]),
+    lidaAdmin: valorBooleanoChatV3_(linha[9]),
+    tipo: valorParaTextoV3_(linha[10]) || "texto",
+    audioDataUrl: valorParaTextoV3_(linha[11]),
+    imagemDataUrl: valorParaTextoV3_(linha[12]),
+    mimeType: valorParaTextoV3_(linha[13]),
+    duracao: valorParaTextoV3_(linha[14]),
+    timestamp: valorNumeroChatV3_(linha[15]) || normalizarDataHistorico_(linha[1])
+  };
+}
+
 function enviarMensagemChatV3(dados) {
   try {
     dados = dados || {};
     var mensagem = dados.mensagem ? dados.mensagem.toString().trim() : "";
-    if (!mensagem) return { success: false, message: "Digite uma mensagem." };
+    var tipoMensagem = dados.tipo ? dados.tipo.toString().trim().toLowerCase() : "texto";
+    var audioDataUrl = dados.audioDataUrl ? dados.audioDataUrl.toString() : "";
+    var imagemDataUrl = dados.imagemDataUrl ? dados.imagemDataUrl.toString() : "";
+    var mimeType = dados.mimeType ? dados.mimeType.toString() : "";
+    var duracao = dados.duracao ? dados.duracao.toString() : "";
+    var timestamp = parseInt(dados.timestamp, 10);
+
+    if (!mensagem && tipoMensagem !== "audio" && tipoMensagem !== "imagem") {
+      return { success: false, message: "Digite uma mensagem." };
+    }
+    if (tipoMensagem === "audio" && !audioDataUrl) {
+      return { success: false, message: "Audio nao encontrado." };
+    }
+    if (tipoMensagem === "imagem" && !imagemDataUrl) {
+      return { success: false, message: "Imagem nao encontrada." };
+    }
 
     var remetenteTipo = dados.remetenteTipo || "Cliente";
     var clienteEmail = remetenteTipo === "Administrador" ? dados.clienteEmail : dados.email;
@@ -1622,12 +1679,14 @@ function enviarMensagemChatV3(dados) {
     var clienteNome = clientePerfil && clientePerfil.success ? clientePerfil.usuario : (dados.clienteNome || clienteEmail);
     var remetenteEmail = dados.email ? dados.email.toString().trim().toLowerCase() : "";
     var remetenteNome = dados.usuario || remetenteEmail;
-    var id = "MSG-" + new Date().getTime().toString().slice(-9);
+    var agora = new Date();
+    if (isNaN(timestamp)) timestamp = agora.getTime();
+    var id = dados.id ? dados.id.toString().trim() : ("MSG-" + timestamp.toString());
     var aba = getAbaChatV3_();
 
     aba.appendRow([
       id,
-      formatarDataHoraSistema_(),
+      dados.dataHora || formatarDataHoraSistema_(),
       clienteEmail,
       clienteNome,
       remetenteEmail,
@@ -1635,9 +1694,15 @@ function enviarMensagemChatV3(dados) {
       remetenteTipo,
       mensagem,
       remetenteTipo === "Cliente" ? "Sim" : "",
-      remetenteTipo === "Administrador" ? "Sim" : ""
+      remetenteTipo === "Administrador" ? "Sim" : "",
+      tipoMensagem || "texto",
+      audioDataUrl,
+      imagemDataUrl,
+      mimeType,
+      duracao,
+      timestamp
     ]);
-    SpreadsheetApp.flush();
+    flushAbaSeNecessarioV3_(aba);
 
     if (remetenteTipo === "Administrador") {
       try {
@@ -1670,17 +1735,12 @@ function getMensagensConversaV3(emailCliente) {
       var clienteEmail = linha[2] ? linha[2].toString().trim().toLowerCase() : "";
       if (clienteEmail !== emailLower) continue;
 
-      mensagens.push({
-        id: valorParaTextoV3_(linha[0]),
-        dataHora: valorParaTextoV3_(linha[1]),
-        clienteEmail: clienteEmail,
-        clienteNome: valorParaTextoV3_(linha[3]),
-        remetenteEmail: valorParaTextoV3_(linha[4]),
-        remetenteNome: valorParaTextoV3_(linha[5]),
-        remetenteTipo: valorParaTextoV3_(linha[6]),
-        mensagem: valorParaTextoV3_(linha[7])
-      });
+      mensagens.push(converterLinhaMensagemChatV3_(linha));
     }
+
+    mensagens.sort(function(a, b) {
+      return valorNumeroChatV3_(a.timestamp) - valorNumeroChatV3_(b.timestamp);
+    });
 
     return { success: true, mensagens: mensagens, total: mensagens.length };
   } catch (error) {
@@ -1698,26 +1758,33 @@ function getConversasAdminV3() {
       var linha = dados[i];
       var clienteEmail = linha[2] ? linha[2].toString().trim().toLowerCase() : "";
       if (!clienteEmail) continue;
+      var mensagem = converterLinhaMensagemChatV3_(linha);
       var item = mapa[clienteEmail] || {
         clienteEmail: clienteEmail,
-        clienteNome: valorParaTextoV3_(linha[3]),
+        clienteNome: mensagem.clienteNome,
         ultimaMensagem: "",
         ultimaData: "",
+        ultimaTimestamp: 0,
         total: 0,
-        naoLidasAdmin: 0
+        naoLidasAdmin: 0,
+        naoLidasCliente: 0
       };
-      item.clienteNome = item.clienteNome || valorParaTextoV3_(linha[3]);
-      item.ultimaMensagem = valorParaTextoV3_(linha[7]);
-      item.ultimaData = valorParaTextoV3_(linha[1]);
+      item.clienteNome = item.clienteNome || mensagem.clienteNome;
+      if (!item.ultimaTimestamp || mensagem.timestamp >= item.ultimaTimestamp) {
+        item.ultimaMensagem = tipoMensagemResumoChatV3_(mensagem.tipo, mensagem.mensagem);
+        item.ultimaData = mensagem.dataHora;
+        item.ultimaTimestamp = mensagem.timestamp;
+      }
       item.total++;
-      if (valorParaTextoV3_(linha[6]) === "Cliente" && !valorParaTextoV3_(linha[9])) item.naoLidasAdmin++;
+      if (mensagem.remetenteTipo === "Cliente" && !mensagem.lidaAdmin) item.naoLidasAdmin++;
+      if (mensagem.remetenteTipo === "Administrador" && !mensagem.lidaCliente) item.naoLidasCliente++;
       mapa[clienteEmail] = item;
     }
 
     var conversas = [];
     for (var email in mapa) conversas.push(mapa[email]);
     conversas.sort(function(a, b) {
-      return normalizarDataHistorico_(b.ultimaData) - normalizarDataHistorico_(a.ultimaData);
+      return valorNumeroChatV3_(b.ultimaTimestamp) - valorNumeroChatV3_(a.ultimaTimestamp);
     });
 
     return { success: true, conversas: conversas, total: conversas.length };
@@ -1746,10 +1813,37 @@ function marcarMensagensAdminLidasV3(emailCliente) {
       }
     }
 
-    SpreadsheetApp.flush();
+    flushAbaSeNecessarioV3_(aba);
     return { success: true, atualizadas: atualizadas };
   } catch (error) {
     return { success: false, message: "Erro ao marcar mensagens: " + error.toString() };
+  }
+}
+
+function marcarMensagensClienteLidasV3(emailCliente) {
+  try {
+    var emailLower = emailCliente ? emailCliente.toString().trim().toLowerCase() : "";
+    if (!emailLower) return { success: false, message: "Cliente nao informado." };
+
+    var aba = getAbaChatV3_();
+    var dados = aba.getDataRange().getValues();
+    var atualizadas = 0;
+
+    for (var i = 1; i < dados.length; i++) {
+      var linha = dados[i];
+      var clienteEmail = linha[2] ? linha[2].toString().trim().toLowerCase() : "";
+      var remetenteTipo = valorParaTextoV3_(linha[6]);
+      var lidaCliente = valorParaTextoV3_(linha[8]);
+      if (clienteEmail === emailLower && remetenteTipo === "Administrador" && !lidaCliente) {
+        aba.getRange(i + 1, 9).setValue("Sim");
+        atualizadas++;
+      }
+    }
+
+    flushAbaSeNecessarioV3_(aba);
+    return { success: true, atualizadas: atualizadas };
+  } catch (error) {
+    return { success: false, message: "Erro ao marcar mensagens do cliente: " + error.toString() };
   }
 }
 

@@ -2316,7 +2316,7 @@
       position: fixed;
       left: calc(280px + var(--lg));
       bottom: var(--lg);
-      width: min(356px, calc(100vw - 320px));
+      width: min(320px, calc(100vw - 320px));
       min-width: 200px;
       background: var(--card);
       border: 1px solid var(--border);
@@ -2328,7 +2328,7 @@
 
     body.sidebar-collapsed .ambient-music-panel {
       left: calc(88px + var(--lg));
-      width: min(356px, calc(100vw - 128px));
+      width: min(320px, calc(100vw - 128px));
     }
 
     .ambient-music-header {
@@ -2362,19 +2362,59 @@
       padding: var(--xs);
     }
 
-    .ambient-music-player,
-    .ambient-music-player iframe {
-      display: block;
+    .ambient-music-body {
+      display: flex;
+      flex-direction: column;
+      gap: .85rem;
+      padding: var(--md);
+    }
+
+    .ambient-music-controls {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) 44px;
+      gap: .75rem;
+      align-items: center;
+    }
+
+    .ambient-music-control-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      color: var(--text);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+    }
+
+    .ambient-music-control-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 22px rgba(15,23,42,0.08);
+      background: #fff;
+    }
+
+    .ambient-music-volume-range {
       width: 100%;
-      height: 200px;
-      border: 0;
-      background: #0f172a;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
+    .ambient-music-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sm);
+      flex-wrap: wrap;
     }
 
     .ambient-music-hint {
-      padding: 8px var(--md);
       color: var(--text-light);
       font-size: 0.72rem;
+      margin: 0;
     }
 
     .support-chat-widget {

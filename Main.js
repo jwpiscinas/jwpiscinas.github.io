@@ -119,14 +119,15 @@ function testarConexao() {
   console.log("Testando conexão...");
   
   try {
-    var planilha = SpreadsheetApp.getActiveSpreadsheet();
-    var nome = planilha.getName();
+    var health = typeof getFirebaseAppDataHealth_ === "function"
+      ? getFirebaseAppDataHealth_()
+      : null;
     
     return {
       success: true,
       message: "✅ Sistema JW Piscinas Mobile está funcionando!",
       timestamp: new Date().toLocaleString('pt-BR'),
-      planilha: nome,
+      firebase: health,
       versao: "2.0"
     };
     

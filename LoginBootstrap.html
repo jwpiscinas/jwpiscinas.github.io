@@ -48,6 +48,23 @@
   JW.chatAdminMobileView = "lista";
   JW.chatFavoritosAdmin = null;
   JW.financeiroItemImagem = null;
+  JW.ambientMusic = {
+    initialized: false,
+    context: null,
+    masterGain: null,
+    compressor: null,
+    voices: [],
+    chordTimer: null,
+    chordIndex: 0,
+    volume: 0.35,
+    muted: false,
+    pendingUnlock: false,
+    unlockHandler: null,
+    lastNonZeroVolume: 0.35
+  };
+  JW.AMBIENT_MUSIC_VOLUME_KEY = "jwAmbientMusicVolume";
+  JW.AMBIENT_MUSIC_MUTED_KEY = "jwAmbientMusicMuted";
+  JW.AMBIENT_MUSIC_STEP = 0.1;
 
   JW.escapeHTML = function(valor) {
     if (valor === null || valor === undefined) return "";
@@ -957,33 +974,284 @@
     JW.renderChatWidget();
     JW.carregarNotificacoes();
     JW.fecharNotificacoes();
-    JW.abrirMusicaAmbiente();
+    JW.inicializarMusicaAmbiente();
     JW.abrirTab(JW.isAdmin() ? "relatorios" : "inicio");
   };
 
-  JW.abrirMusicaAmbiente = function() {
+  JW.lerStorageMusicaAmbiente_ = function(chave, fallback) {
+    try {
+      var valor = localStorage.getItem(chave);
+      return valor === null ? fallback : valor;
+    } catch (error) {
+      return fallback;
+    }
+  };
+
+  JW.salvarStorageMusicaAmbiente_ = function(chave, valor) {
+    try {
+      localStorage.setItem(chave, valor);
+    } catch (error) {}
+  };
+
+  JW.atualizarStatusMusicaAmbiente_ = function(texto) {
+    var status = document.getElementById("ambientMusicStatus");
+    if (status) status.textContent = texto;
+  };
+
+  JW.sincronizarControlesMusicaAmbiente_ = function() {
+    var state = JW.ambientMusic || {};
+    var volumeReal = state.muted ? 0 : state.volume;
+    var porcentagem = Math.round(volumeReal * 100);
+    var range = document.getElementById("ambientMusicVolumeRange");
+    var label = document.getElementById("ambientMusicVolumeLabel");
+    var muteLabel = document.getElementById("ambientMusicMuteLabel");
+    var muteIcon = document.getElementById("ambientMusicMuteIcon");
+    var headerIcon = document.getElementById("ambientMusicHeaderIcon");
+    var muteBtn = document.getElementById("ambientMusicMuteBtn");
+
+    if (range) range.value = String(porcentagem);
+    if (label) label.textContent = porcentagem + "%";
+    if (muteLabel) muteLabel.textContent = state.muted ? "Ativar" : "Mutar";
+    if (muteBtn) muteBtn.classList.toggle("btn-primary", !state.muted);
+    if (muteBtn) muteBtn.classList.toggle("btn-secondary", !!state.muted);
+
+    var iconClass = state.muted || porcentagem === 0
+      ? "fas fa-volume-xmark"
+      : (porcentagem <= 40 ? "fas fa-volume-low" : "fas fa-volume-high");
+
+    if (muteIcon) muteIcon.className = iconClass;
+    if (headerIcon) headerIcon.className = iconClass;
+  };
+
+  JW.aplicarVolumeMusicaAmbiente_ = function() {
+    var state = JW.ambientMusic;
+    if (!state || !state.masterGain || !state.context) {
+      JW.sincronizarControlesMusicaAmbiente_();
+      return;
+    }
+
+    var now = state.context.currentTime;
+    var destino = state.muted ? 0.00001 : Math.max(0.00001, state.volume * 0.14);
+    state.masterGain.gain.cancelScheduledValues(now);
+    state.masterGain.gain.setTargetAtTime(destino, now, 0.6);
+
+    JW.salvarStorageMusicaAmbiente_(JW.AMBIENT_MUSIC_VOLUME_KEY, String(state.volume));
+    JW.salvarStorageMusicaAmbiente_(JW.AMBIENT_MUSIC_MUTED_KEY, state.muted ? "1" : "0");
+    JW.sincronizarControlesMusicaAmbiente_();
+  };
+
+  JW.aplicarChordMusicaAmbiente_ = function(indice) {
+    var state = JW.ambientMusic;
+    if (!state || !state.voices || !state.voices.length || !state.context) return;
+
+    var progressao = [
+      [220.0, 261.63, 329.63],
+      [196.0, 246.94, 293.66],
+      [174.61, 220.0, 261.63],
+      [196.0, 233.08, 293.66]
+    ];
+    var intensidades = [0.55, 0.38, 0.28];
+    var chord = progressao[indice % progressao.length];
+    var now = state.context.currentTime;
+
+    for (var i = 0; i < state.voices.length; i++) {
+      var voice = state.voices[i];
+      var frequency = chord[i % chord.length];
+      voice.osc.frequency.cancelScheduledValues(now);
+      voice.osc.frequency.setTargetAtTime(frequency, now, 2.2);
+      voice.gain.gain.cancelScheduledValues(now);
+      voice.gain.gain.setTargetAtTime(intensidades[i % intensidades.length], now, 1.8);
+    }
+
+    state.chordIndex = (indice + 1) % progressao.length;
+  };
+
+  JW.prepararLoopMusicaAmbiente_ = function() {
+    var state = JW.ambientMusic;
+    if (!state || state.chordTimer) return;
+
+    JW.aplicarChordMusicaAmbiente_(state.chordIndex || 0);
+    state.chordTimer = window.setInterval(function() {
+      JW.aplicarChordMusicaAmbiente_(state.chordIndex || 0);
+    }, 12000);
+  };
+
+  JW.removerUnlockMusicaAmbiente_ = function() {
+    var state = JW.ambientMusic;
+    if (!state || !state.unlockHandler) return;
+
+    document.removeEventListener("pointerdown", state.unlockHandler, true);
+    document.removeEventListener("keydown", state.unlockHandler, true);
+    state.unlockHandler = null;
+    state.pendingUnlock = false;
+  };
+
+  JW.prepararUnlockMusicaAmbiente_ = function() {
+    var state = JW.ambientMusic;
+    if (!state || state.unlockHandler) return;
+
+    state.pendingUnlock = true;
+    state.unlockHandler = function() {
+      JW.tentarAtivarMusicaAmbiente_();
+    };
+
+    document.addEventListener("pointerdown", state.unlockHandler, true);
+    document.addEventListener("keydown", state.unlockHandler, true);
+    JW.atualizarStatusMusicaAmbiente_("Toque em qualquer lugar para ativar o audio.");
+  };
+
+  JW.tentarAtivarMusicaAmbiente_ = function() {
+    var state = JW.ambientMusic;
+    if (!state || !state.context) return;
+
+    state.context.resume().then(function() {
+      JW.prepararLoopMusicaAmbiente_();
+      JW.aplicarVolumeMusicaAmbiente_();
+      JW.removerUnlockMusicaAmbiente_();
+      JW.atualizarStatusMusicaAmbiente_(state.muted ? "Musica mutada." : "Musica ambiente tocando.");
+    }).catch(function() {
+      JW.prepararUnlockMusicaAmbiente_();
+    });
+  };
+
+  JW.inicializarMusicaAmbiente = function() {
     var painel = document.getElementById("ambientMusicPanel");
-    var container = document.getElementById("ambientMusicPlayer");
-    if (!JW.usuarioLogado || !painel || !container) return;
+    if (!JW.usuarioLogado || !painel) return;
 
-    painel.classList.remove("d-none");
-    if (container.querySelector("iframe")) return;
+    var state = JW.ambientMusic;
+    if (!state.initialized) {
+      var AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) {
+        JW.atualizarStatusMusicaAmbiente_("Audio ambiente indisponivel neste navegador.");
+        return;
+      }
 
-    var iframe = document.createElement("iframe");
-    iframe.src = "https://www.youtube-nocookie.com/embed/PRAGLqfNK1o?playsinline=1&loop=1&playlist=PRAGLqfNK1o&rel=0";
-    iframe.title = "New York Coffee Shop Ambience - Sweet Bossa Nova Jazz Music";
-    iframe.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture; fullscreen");
-    iframe.setAttribute("allowfullscreen", "");
-    iframe.setAttribute("loading", "lazy");
-    iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
-    container.appendChild(iframe);
+      var volumeSalvo = parseFloat(JW.lerStorageMusicaAmbiente_(JW.AMBIENT_MUSIC_VOLUME_KEY, "0.35"));
+      if (!isNaN(volumeSalvo)) state.volume = Math.min(1, Math.max(0, volumeSalvo));
+      state.muted = JW.lerStorageMusicaAmbiente_(JW.AMBIENT_MUSIC_MUTED_KEY, "0") === "1";
+      state.lastNonZeroVolume = state.volume > 0 ? state.volume : 0.35;
+
+      state.context = new AudioCtx();
+      state.compressor = state.context.createDynamicsCompressor();
+      state.compressor.threshold.value = -26;
+      state.compressor.knee.value = 18;
+      state.compressor.ratio.value = 3;
+      state.compressor.attack.value = 0.03;
+      state.compressor.release.value = 0.35;
+
+      state.masterGain = state.context.createGain();
+      state.masterGain.gain.value = 0.00001;
+      state.masterGain.connect(state.compressor);
+      state.compressor.connect(state.context.destination);
+
+      var tipos = ["triangle", "sine", "sine"];
+      var detunes = [-6, 0, 8];
+      var lfoFrequencias = [0.07, 0.09, 0.05];
+
+      for (var i = 0; i < tipos.length; i++) {
+        var osc = state.context.createOscillator();
+        osc.type = tipos[i];
+        osc.detune.value = detunes[i];
+
+        var filter = state.context.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 900 + (i * 180);
+        filter.Q.value = 0.0001;
+
+        var gain = state.context.createGain();
+        gain.gain.value = 0.00001;
+
+        var lfo = state.context.createOscillator();
+        lfo.type = "sine";
+        lfo.frequency.value = lfoFrequencias[i];
+
+        var lfoGain = state.context.createGain();
+        lfoGain.gain.value = 2 + (i * 0.8);
+
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(state.masterGain);
+
+        osc.start();
+        lfo.start();
+
+        state.voices.push({
+          osc: osc,
+          gain: gain,
+          lfo: lfo,
+          lfoGain: lfoGain
+        });
+      }
+
+      state.initialized = true;
+    }
+
+    JW.sincronizarControlesMusicaAmbiente_();
+    JW.tentarAtivarMusicaAmbiente_();
+  };
+
+  JW.togglePainelMusicaAmbiente = function() {
+    var painel = document.getElementById("ambientMusicPanel");
+    if (!painel) return;
+
+    JW.inicializarMusicaAmbiente();
+    painel.classList.toggle("d-none");
   };
 
   JW.fecharMusicaAmbiente = function() {
     var painel = document.getElementById("ambientMusicPanel");
-    var container = document.getElementById("ambientMusicPlayer");
-    if (container) container.textContent = "";
     if (painel) painel.classList.add("d-none");
+  };
+
+  JW.definirVolumeMusicaAmbiente = function(valor) {
+    var state = JW.ambientMusic;
+    if (!state) return;
+
+    var volume = Math.min(1, Math.max(0, parseFloat(valor) || 0));
+    state.volume = volume;
+    if (volume > 0) {
+      state.lastNonZeroVolume = volume;
+      state.muted = false;
+    } else {
+      state.muted = true;
+    }
+
+    JW.aplicarVolumeMusicaAmbiente_();
+    JW.atualizarStatusMusicaAmbiente_(state.muted ? "Musica mutada." : "Volume ajustado.");
+    JW.tentarAtivarMusicaAmbiente_();
+  };
+
+  JW.aumentarVolumeMusicaAmbiente = function() {
+    var state = JW.ambientMusic;
+    if (!state) return;
+    var base = state.muted ? (state.lastNonZeroVolume || 0.35) : state.volume;
+    JW.definirVolumeMusicaAmbiente(Math.min(1, base + JW.AMBIENT_MUSIC_STEP));
+  };
+
+  JW.diminuirVolumeMusicaAmbiente = function() {
+    var state = JW.ambientMusic;
+    if (!state) return;
+    var proximo = Math.max(0, (state.muted ? 0 : state.volume) - JW.AMBIENT_MUSIC_STEP);
+    JW.definirVolumeMusicaAmbiente(proximo);
+  };
+
+  JW.toggleMuteMusicaAmbiente = function() {
+    var state = JW.ambientMusic;
+    if (!state) return;
+
+    if (state.muted || state.volume === 0) {
+      state.muted = false;
+      state.volume = state.lastNonZeroVolume || 0.35;
+    } else {
+      state.lastNonZeroVolume = state.volume > 0 ? state.volume : (state.lastNonZeroVolume || 0.35);
+      state.muted = true;
+    }
+
+    JW.aplicarVolumeMusicaAmbiente_();
+    JW.atualizarStatusMusicaAmbiente_(state.muted ? "Musica mutada." : "Musica ambiente tocando.");
+    JW.tentarAtivarMusicaAmbiente_();
   };
 
   JW.isAdmin = function() {
@@ -3059,81 +3327,14 @@
     }
   };
 
-  JW.firebaseChatConfig = {
-    apiKey: "AIzaSyB8zVxedBW7xJol9m-9D0X0jRNiWuqEvgk",
-    authDomain: "jwpiscinas.firebaseapp.com",
-    databaseURL: "https://jwpiscinas-default-rtdb.firebaseio.com",
-    projectId: "jwpiscinas",
-    storageBucket: "jwpiscinas.firebasestorage.app",
-    messagingSenderId: "668426196860",
-    appId: "1:668426196860:web:5999815ecb7cf0048876f9"
-  };
-
-  JW.firebaseChat = {
-    app: null,
-    db: null,
-    adminConversasRef: null,
-    adminConversaRef: null,
-    clienteConversaRef: null,
-    clienteBadgeRef: null,
-    typingRef: null
+  JW.chatPolling = {
+    adminListTimer: null,
+    adminThreadTimer: null,
+    clientThreadTimer: null
   };
 
   JW.iniciarFirebaseChat = function() {
-    if (!window.firebase || !firebase.apps || !firebase.database) return false;
-    try {
-      if (!JW.firebaseChat.app) {
-        JW.firebaseChat.app = firebase.apps.length ? firebase.app() : firebase.initializeApp(JW.firebaseChatConfig);
-        JW.firebaseChat.db = firebase.database();
-      }
-      return !!JW.firebaseChat.db;
-    } catch (error) {
-      console.warn("Firebase chat indisponivel:", error);
-      return false;
-    }
-  };
-
-  JW.chatKeyFirebase = function(email) {
-    var normalizado = String(email || "").trim().toLowerCase();
-    try {
-      return btoa(unescape(encodeURIComponent(normalizado))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-    } catch (error) {
-      return normalizado.replace(/[.#$/\[\]]/g, "_");
-    }
-  };
-
-  JW.dataHoraFirebase = function(valor) {
-    var data = valor ? new Date(valor) : new Date();
-    if (isNaN(data.getTime())) data = new Date();
-    return data.toLocaleString("pt-BR");
-  };
-
-  JW.mensagensFirebaseArray = function(valor) {
-    var mensagens = [];
-    valor = valor || {};
-    Object.keys(valor).forEach(function(id) {
-      mensagens.push(Object.assign({ id: id }, valor[id] || {}));
-    });
-    mensagens.sort(function(a, b) {
-      return (parseInt(a.timestamp, 10) || 0) - (parseInt(b.timestamp, 10) || 0);
-    });
-    return mensagens.map(function(m) {
-      return Object.assign({}, m, { dataHora: m.dataHora || JW.dataHoraFirebase(m.timestamp) });
-    });
-  };
-
-  JW.conversasFirebaseArray = function(valor) {
-    var conversas = [];
-    valor = valor || {};
-    Object.keys(valor).forEach(function(id) {
-      conversas.push(Object.assign({ id: id }, valor[id] || {}));
-    });
-    conversas.sort(function(a, b) {
-      return (parseInt(b.ultimaTimestamp, 10) || 0) - (parseInt(a.ultimaTimestamp, 10) || 0);
-    });
-    return conversas.map(function(c) {
-      return Object.assign({}, c, { ultimaData: c.ultimaData || JW.dataHoraFirebase(c.ultimaTimestamp) });
-    });
+    return false;
   };
 
   JW.atualizarBadgeFirebase = function(total) {
@@ -3147,49 +3348,6 @@
     if (widget) widget.classList.toggle("has-unread", total > 0);
   };
 
-  JW.observarConversasAdminFirebase = function(containerId) {
-    if (!JW.iniciarFirebaseChat() || !JW.isAdmin()) return false;
-    if (JW.firebaseChat.adminConversasRef) JW.firebaseChat.adminConversasRef.off();
-    var ref = JW.firebaseChat.db.ref("jwChat/conversations");
-    JW.firebaseChat.adminConversasRef = ref;
-    ref.on("value", function(snapshot) {
-      var conversas = JW.conversasFirebaseArray(snapshot.val());
-      JW.conversasAdminCache = conversas;
-      var totalNaoLidas = 0;
-      for (var i = 0; i < conversas.length; i++) totalNaoLidas += parseInt(conversas[i].naoLidasAdmin, 10) || 0;
-      var destino = document.getElementById(containerId);
-      if (destino) destino.innerHTML = JW.renderConversasAdmin(conversas);
-      JW.atualizarBadgeFirebase(totalNaoLidas);
-    }, function(error) {
-      var destino = document.getElementById(containerId);
-      if (destino) destino.innerHTML = '<p class="text-muted">Nao foi possivel conectar ao Firebase.</p>';
-      console.warn("Erro ao ouvir conversas Firebase:", error);
-    });
-    return true;
-  };
-
-  JW.observarConversaFirebase = function(clienteEmail, containerId) {
-    if (!JW.iniciarFirebaseChat()) return false;
-    var id = JW.chatKeyFirebase(clienteEmail);
-    var refName = JW.isAdmin() ? "adminConversaRef" : "clienteConversaRef";
-    if (JW.firebaseChat[refName]) JW.firebaseChat[refName].off();
-    var ref = JW.firebaseChat.db.ref("jwChat/messages/" + id);
-    JW.firebaseChat[refName] = ref;
-    ref.on("value", function(snapshot) {
-      var hist = document.getElementById(containerId);
-      if (!hist) return;
-      hist.innerHTML = JW.renderMensagensChat(JW.mensagensFirebaseArray(snapshot.val()));
-      JW.scrollChatParaFinal(containerId);
-    }, function(error) {
-      var hist = document.getElementById(containerId);
-      if (hist) hist.innerHTML = '<p class="text-muted">Nao foi possivel carregar a conversa em tempo real.</p>';
-      console.warn("Erro ao ouvir mensagens Firebase:", error);
-    });
-    var campoLeitura = JW.isAdmin() ? "naoLidasAdmin" : "naoLidasCliente";
-    JW.firebaseChat.db.ref("jwChat/conversations/" + id + "/" + campoLeitura).set(0).catch(function() {});
-    return true;
-  };
-
   JW.scrollChatParaFinal = function(containerId) {
     window.requestAnimationFrame(function() {
       var hist = document.getElementById(containerId);
@@ -3197,146 +3355,127 @@
     });
   };
 
+  JW.limparPollingChat_ = function(chave) {
+    if (!JW.chatPolling[chave]) return;
+    window.clearInterval(JW.chatPolling[chave]);
+    JW.chatPolling[chave] = null;
+  };
+
+  JW.pararTodosPollingsChat_ = function() {
+    JW.limparPollingChat_("adminListTimer");
+    JW.limparPollingChat_("adminThreadTimer");
+    JW.limparPollingChat_("clientThreadTimer");
+  };
+
+  JW.atualizarListaConversasAdminPolling_ = async function(containerId, silencioso) {
+    try {
+      var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
+      var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
+      JW.conversasAdminCache = conversas;
+      var totalNaoLidas = 0;
+      for (var i = 0; i < conversas.length; i++) totalNaoLidas += parseInt(conversas[i].naoLidasAdmin, 10) || 0;
+      var destino = containerId ? document.getElementById(containerId) : null;
+      if (destino) destino.innerHTML = JW.renderConversasAdmin(conversas);
+      JW.atualizarBadgeFirebase(totalNaoLidas);
+    } catch (error) {
+      if (!silencioso && containerId) {
+        var destinoErro = document.getElementById(containerId);
+        if (destinoErro) destinoErro.innerHTML = '<p class="text-muted" style="padding:1rem;">Nao foi possivel carregar as conversas.</p>';
+      }
+    }
+  };
+
+  JW.iniciarPollingConversasAdmin = function(containerId) {
+    JW.limparPollingChat_("adminListTimer");
+    JW.atualizarListaConversasAdminPolling_(containerId, false);
+    JW.chatPolling.adminListTimer = window.setInterval(function() {
+      JW.atualizarListaConversasAdminPolling_(containerId, true);
+    }, 8000);
+  };
+
+  JW.atualizarConversaAdminPolling_ = async function(containerId) {
+    if (!JW.chatClienteAtual) return;
+    try {
+      var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", JW.chatClienteAtual);
+      var hist = document.getElementById(containerId);
+      if (hist) {
+        hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
+        JW.scrollChatParaFinal(containerId);
+      }
+      JW.chamarGoogleScript("marcarMensagensAdminLidasV3", JW.chatClienteAtual).catch(function() {});
+    } catch (error) {}
+  };
+
+  JW.iniciarPollingConversaAdmin = function(clienteEmail, containerId) {
+    JW.chatClienteAtual = clienteEmail;
+    JW.limparPollingChat_("adminThreadTimer");
+    JW.atualizarConversaAdminPolling_(containerId);
+    JW.chatPolling.adminThreadTimer = window.setInterval(function() {
+      JW.atualizarConversaAdminPolling_(containerId);
+    }, 5000);
+  };
+
+  JW.atualizarConversaClientePolling_ = async function(containerId) {
+    if (!JW.usuarioLogado || !JW.usuarioLogado.email) return;
+    try {
+      var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", JW.usuarioLogado.email);
+      var hist = document.getElementById(containerId);
+      if (hist) {
+        hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
+        JW.scrollChatParaFinal(containerId);
+      }
+      JW.chamarGoogleScript("marcarMensagensClienteLidasV3", JW.usuarioLogado.email).catch(function() {});
+    } catch (error) {}
+  };
+
+  JW.iniciarPollingConversaCliente = function(containerId) {
+    JW.limparPollingChat_("clientThreadTimer");
+    JW.atualizarConversaClientePolling_(containerId);
+    JW.chatPolling.clientThreadTimer = window.setInterval(function() {
+      JW.atualizarConversaClientePolling_(containerId);
+    }, 5000);
+  };
+
+  JW.observarConversasAdminFirebase = function() {
+    return false;
+  };
+
+  JW.observarConversaFirebase = function() {
+    return false;
+  };
+
   JW.observarBadgeClienteFirebase = function() {
-    if (!JW.iniciarFirebaseChat() || !JW.usuarioLogado || JW.isAdmin()) return false;
-    if (JW.firebaseChat.clienteBadgeRef) JW.firebaseChat.clienteBadgeRef.off();
-    var id = JW.chatKeyFirebase(JW.usuarioLogado.email);
-    var ref = JW.firebaseChat.db.ref("jwChat/conversations/" + id + "/naoLidasCliente");
-    JW.firebaseChat.clienteBadgeRef = ref;
-    ref.on("value", function(snapshot) {
-      JW.atualizarBadgeFirebase(snapshot.val() || 0);
-    }, function(error) {
-      console.warn("Erro ao ouvir badge Firebase:", error);
-    });
-    return true;
+    return false;
   };
 
   JW.enviarMensagemFirebase = async function(dados) {
-    if (!JW.iniciarFirebaseChat()) throw new Error("Firebase indisponivel.");
-    dados = dados || {};
-    var mensagem = String(dados.mensagem || "").trim();
-    var tipoMensagem = dados.tipo || "texto";
-    var audioDataUrl = dados.audioDataUrl || "";
-    var imagemDataUrl = dados.imagemDataUrl || "";
-    if (!mensagem && tipoMensagem !== "audio" && tipoMensagem !== "imagem") throw new Error("Digite uma mensagem.");
-    if (tipoMensagem === "audio" && !audioDataUrl) throw new Error("Audio nao encontrado.");
-    if (tipoMensagem === "imagem" && !imagemDataUrl) throw new Error("Imagem nao encontrada.");
-    var remetenteTipo = dados.remetenteTipo || "Cliente";
-    var clienteEmail = String(remetenteTipo === "Administrador" ? dados.clienteEmail : dados.email || "").trim().toLowerCase();
-    if (!clienteEmail) throw new Error("Cliente nao identificado.");
-    var conversaId = JW.chatKeyFirebase(clienteEmail);
-    var usuario = JW.usuarioLogado || {};
-    var remetenteEmail = String(dados.email || usuario.email || "").trim().toLowerCase();
-    var remetenteNome = dados.usuario || usuario.usuario || remetenteEmail;
-    var clienteNome = dados.clienteNome || (remetenteTipo === "Administrador" ? clienteEmail : remetenteNome);
-    var root = JW.firebaseChat.db.ref();
-    var novaMensagemRef = root.child("jwChat/messages/" + conversaId).push();
-    var agora = Date.now();
-    var item = {
-      id: novaMensagemRef.key,
-      timestamp: firebase.database.ServerValue.TIMESTAMP,
-      dataHora: JW.dataHoraFirebase(agora),
-      clienteEmail: clienteEmail,
-      clienteNome: clienteNome,
-      remetenteEmail: remetenteEmail,
-      remetenteNome: remetenteNome,
-      remetenteTipo: remetenteTipo,
-      mensagem: mensagem,
-      tipo: tipoMensagem,
-      audioDataUrl: audioDataUrl,
-      imagemDataUrl: imagemDataUrl,
-      mimeType: dados.mimeType || "",
-      duracao: dados.duracao || ""
-    };
-    var ultimaMensagem = mensagem;
-    if (tipoMensagem === "audio") ultimaMensagem = "Audio";
-    if (tipoMensagem === "imagem") ultimaMensagem = "Imagem";
-    var updates = {};
-    updates["jwChat/messages/" + conversaId + "/" + novaMensagemRef.key] = item;
-    updates["jwChat/conversations/" + conversaId + "/clienteEmail"] = clienteEmail;
-    updates["jwChat/conversations/" + conversaId + "/clienteNome"] = clienteNome;
-    updates["jwChat/conversations/" + conversaId + "/ultimaMensagem"] = ultimaMensagem;
-    updates["jwChat/conversations/" + conversaId + "/ultimaData"] = JW.dataHoraFirebase(agora);
-    updates["jwChat/conversations/" + conversaId + "/ultimaTimestamp"] = firebase.database.ServerValue.TIMESTAMP;
-    await root.update(updates);
-    var contador = remetenteTipo === "Administrador" ? "naoLidasCliente" : "naoLidasAdmin";
-    await root.child("jwChat/conversations/" + conversaId + "/" + contador).transaction(function(valor) {
-      return (parseInt(valor, 10) || 0) + 1;
-    });
-    return { success: true, message: "Mensagem enviada.", id: novaMensagemRef.key };
+    return JW.chamarGoogleScript("enviarMensagemChatV3", dados || {});
   };
 
-  JW.setTypingFirebase = function(clienteEmail, ativo) {
-    if (!JW.iniciarFirebaseChat() || !clienteEmail || !JW.usuarioLogado) return;
-    var conversaId = JW.chatKeyFirebase(clienteEmail);
-    var chave = JW.isAdmin() ? "admin" : "cliente";
-    var ref = JW.firebaseChat.db.ref("jwChat/typing/" + conversaId + "/" + chave);
-    ref.set({
-      ativo: !!ativo,
-      nome: JW.usuarioLogado.usuario || JW.usuarioLogado.email || "",
-      tipo: JW.isAdmin() ? "Administrador" : "Cliente",
-      modo: "texto",
-      timestamp: firebase.database.ServerValue.TIMESTAMP
-    }).catch(function() {});
-  };
+  JW.setTypingFirebase = function() {};
 
-  JW.setRecordingFirebase = function(clienteEmail, ativo) {
-    if (!JW.iniciarFirebaseChat() || !clienteEmail || !JW.usuarioLogado) return;
-    var conversaId = JW.chatKeyFirebase(clienteEmail);
-    var chave = JW.isAdmin() ? "admin" : "cliente";
-    var ref = JW.firebaseChat.db.ref("jwChat/typing/" + conversaId + "/" + chave);
-    ref.set({
-      ativo: !!ativo,
-      nome: JW.usuarioLogado.usuario || JW.usuarioLogado.email || "",
-      tipo: JW.isAdmin() ? "Administrador" : "Cliente",
-      modo: "audio",
-      timestamp: firebase.database.ServerValue.TIMESTAMP
-    }).catch(function() {});
-  };
+  JW.setRecordingFirebase = function() {};
 
-  JW.notificarDigitandoChat = function(clienteEmail) {
-    if (!clienteEmail) return;
-    JW.setTypingFirebase(clienteEmail, true);
-    var chave = JW.chatKeyFirebase(clienteEmail) + (JW.isAdmin() ? "_admin" : "_cliente");
-    if (JW.chatTypingTimers[chave]) window.clearTimeout(JW.chatTypingTimers[chave]);
-    JW.chatTypingTimers[chave] = window.setTimeout(function() {
-      JW.setTypingFirebase(clienteEmail, false);
-    }, 1600);
-  };
+  JW.notificarDigitandoChat = function() {};
 
   JW.observarDigitandoFirebase = function(clienteEmail, containerId) {
-    if (!JW.iniciarFirebaseChat() || !clienteEmail) return false;
-    if (JW.firebaseChat.typingRef) JW.firebaseChat.typingRef.off();
-    var conversaId = JW.chatKeyFirebase(clienteEmail);
-    var alvo = JW.isAdmin() ? "cliente" : "admin";
-    var ref = JW.firebaseChat.db.ref("jwChat/typing/" + conversaId + "/" + alvo);
-    JW.firebaseChat.typingRef = ref;
-    ref.on("value", function(snapshot) {
-      var el = document.getElementById(containerId);
-      if (!el) return;
-      var valor = snapshot.val() || {};
-      var recente = valor.timestamp ? (Date.now() - parseInt(valor.timestamp, 10) < 5000) : true;
-      if (!valor.ativo || !recente) {
-        el.textContent = "";
-        return;
-      }
-      el.textContent = (valor.nome || "Usuario") + (valor.modo === "audio" ? " esta gravando audio..." : " esta digitando...");
-    });
-    return true;
+    var el = document.getElementById(containerId);
+    if (el) el.textContent = "";
+    return false;
   };
 
-  JW.bindTypingInput = function(inputId, clienteEmail) {
+  JW.bindTypingInput = function(inputId) {
     var campo = document.getElementById(inputId);
     if (!campo || campo.dataset.typingBound) return;
     campo.dataset.typingBound = "1";
-    campo.addEventListener("input", function() {
-      JW.notificarDigitandoChat(clienteEmail);
-    });
   };
 
   JW.fecharChatWidget = function() {
     var widget = document.getElementById("supportChatWidget");
     if (widget) widget.classList.remove("open");
+    JW.limparPollingChat_("adminThreadTimer");
+    JW.limparPollingChat_("clientThreadTimer");
+    if (JW.isAdmin()) JW.iniciarPollingConversasAdmin("");
     JW.chatAdminMobileView = "lista";
     JW.atualizarBotaoChatFlutuante(false);
     document.body.classList.remove("chat-immersive-open");
@@ -3448,14 +3587,6 @@
       painel = document.getElementById("adminChatPanel");
       if (!painel) return;
     }
-    if (JW.iniciarFirebaseChat()) {
-      painel.innerHTML = JW.renderAdminChatPainel(clienteEmail, clienteNome || clienteEmail, []);
-      JW.observarConversaFirebase(clienteEmail, "chatHistoryAdmin");
-      JW.observarDigitandoFirebase(clienteEmail, "chatTypingAdmin");
-      JW.bindTypingInput("chatMensagemAdmin", clienteEmail);
-      JW.filtrarConversasAdmin(JW.chatBuscaAdmin || "");
-      return;
-    }
     JW.mostrarLoading("Carregando conversa...");
     try {
       var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", clienteEmail);
@@ -3466,6 +3597,8 @@
       painel.innerHTML = JW.renderAdminChatPainel(clienteEmail, clienteNome || clienteEmail, (conversa && conversa.mensagens) || []);
       JW.bindTypingInput("chatMensagemAdmin", clienteEmail);
       JW.scrollChatParaFinal("chatHistoryAdmin");
+      JW.iniciarPollingConversaAdmin(clienteEmail, "chatHistoryAdmin");
+      JW.filtrarConversasAdmin(JW.chatBuscaAdmin || "");
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao abrir conversa: " + (error.message || error), "error");
@@ -3478,30 +3611,9 @@
       JW.toast("Digite uma resposta.", "error");
       return;
     }
-    if (JW.iniciarFirebaseChat()) {
-      var campoFirebase = document.getElementById("chatMensagemAdmin");
-      if (campoFirebase) campoFirebase.disabled = true;
-      try {
-        await JW.enviarMensagemFirebase({
-          email: JW.usuarioLogado.email,
-          usuario: JW.usuarioLogado.usuario,
-          remetenteTipo: "Administrador",
-          clienteEmail: JW.chatClienteAtual,
-          mensagem: msg
-        });
-        JW.setTypingFirebase(JW.chatClienteAtual, false);
-        if (campoFirebase) campoFirebase.value = "";
-        JW.toast("Resposta enviada.", "success");
-      } catch (error) {
-        JW.toast("Erro ao responder: " + (error.message || error), "error");
-      } finally {
-        if (campoFirebase) campoFirebase.disabled = false;
-      }
-      return;
-    }
     JW.mostrarLoading("Enviando resposta...");
     try {
-      await JW.chamarGoogleScript("enviarMensagemChatV3", {
+      await JW.enviarMensagemFirebase({
         email: JW.usuarioLogado.email,
         usuario: JW.usuarioLogado.usuario,
         remetenteTipo: "Administrador",
@@ -3517,6 +3629,8 @@
       JW.scrollChatParaFinal("chatHistoryAdmin");
       JW.toast("Resposta enviada.", "success");
       JW.carregarBadgeMensagensAdmin();
+      JW.iniciarPollingConversaAdmin(JW.chatClienteAtual, "chatHistoryAdmin");
+      JW.atualizarListaConversasAdminPolling_("adminConversasFirebase", true);
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao responder: " + (error.message || error), "error");
@@ -3650,10 +3764,6 @@
 
   JW.carregarBadgeMensagensAdmin = async function() {
     if (!JW.isAdmin()) return;
-    if (JW.iniciarFirebaseChat()) {
-      if (!JW.firebaseChat.adminConversasRef) JW.observarConversasAdminFirebase("");
-      return;
-    }
     try {
       var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
       var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
@@ -3952,7 +4062,7 @@
     document.body.appendChild(widget);
     JW.habilitarArrasteChat(widget);
     JW.atualizarBotaoChatFlutuante(false);
-    if (admin) JW.carregarBadgeMensagensAdmin();
+    if (admin) JW.iniciarPollingConversasAdmin("");
     else JW.atualizarBadgeChat();
   };
 
@@ -4048,27 +4158,16 @@
         '<aside class="admin-chat-list-panel">' +
           '<div class="admin-chat-mobile-header"><strong>Conversas</strong><button class="chat-header-icon" type="button" onclick="JW.fecharChatWidget()"><i class="fas fa-times"></i></button></div>' +
           '<div class="admin-chat-toolbar"><input id="adminChatSearch" class="admin-chat-search" placeholder="Pesquisar conversa" oninput="JW.filtrarConversasAdmin(this.value)">' + JW.renderFiltrosConversasAdmin() + '</div>' +
-          '<div id="adminConversasFirebase" class="admin-chat-list"><p class="text-muted" style="padding:1rem;">Conectando ao Firebase...</p></div>' +
+          '<div id="adminConversasFirebase" class="admin-chat-list"><p class="text-muted" style="padding:1rem;">Carregando conversas...</p></div>' +
         '</aside>' +
         '<div class="admin-chat-panel" id="adminChatPanel">' + JW.renderAdminChatVazio() + '</div>' +
       '</div>';
     }
     JW.chatAdminMobileView = "lista";
     JW.atualizarLayoutChatAdminMobile();
-    if (JW.observarConversasAdminFirebase("adminConversasFirebase")) {
-      return;
-    }
     var lista = document.getElementById("adminConversasFirebase");
     if (lista) lista.innerHTML = '<p class="text-muted" style="padding:1rem;">Carregando conversas...</p>';
-    try {
-      var conversasResp = await JW.chamarGoogleScript("getConversasAdminV3");
-      var conversas = conversasResp && conversasResp.conversas ? conversasResp.conversas : [];
-      JW.conversasAdminCache = conversas;
-      if (lista) lista.innerHTML = JW.renderConversasAdmin(conversas);
-      JW.carregarBadgeMensagensAdmin();
-    } catch (error) {
-      if (lista) lista.innerHTML = '<p class="text-muted" style="padding:1rem;">Nao foi possivel carregar as conversas.</p>';
-    }
+    JW.iniciarPollingConversasAdmin("adminConversasFirebase");
   };
 
   JW.abrirChatCliente = async function() {
@@ -4088,18 +4187,14 @@
     if (!hist) {
       return;
     }
-    if (JW.iniciarFirebaseChat()) {
-      hist.innerHTML = '<p class="text-muted">Conectando ao Firebase...</p>';
-      JW.observarConversaFirebase(JW.usuarioLogado.email, "chatHistoryCliente");
-      JW.observarDigitandoFirebase(JW.usuarioLogado.email, "chatTypingCliente");
-      JW.bindTypingInput("chatMensagemCliente", JW.usuarioLogado.email);
-      return;
-    }
     hist.innerHTML = '<p class="text-muted">Carregando conversa...</p>';
     try {
       var conversa = await JW.chamarGoogleScript("getMensagensConversaV3", JW.usuarioLogado.email);
+      JW.chamarGoogleScript("marcarMensagensClienteLidasV3", JW.usuarioLogado.email).catch(function() {});
       hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
       JW.scrollChatParaFinal("chatHistoryCliente");
+      JW.bindTypingInput("chatMensagemCliente", JW.usuarioLogado.email);
+      JW.iniciarPollingConversaCliente("chatHistoryCliente");
       for (var i = 0; i < JW.notificacoes.length; i++) {
         var n = JW.notificacoes[i] || {};
         if (!n.lida && String(n.acao || "").indexOf("chat:") === 0) {
@@ -4127,26 +4222,8 @@
     var campo = document.getElementById("chatMensagemCliente");
     var hist = document.getElementById("chatHistoryCliente");
     if (campo) campo.disabled = true;
-    if (JW.iniciarFirebaseChat()) {
-      try {
-        var resultadoFirebase = await JW.enviarMensagemFirebase({
-          email: JW.usuarioLogado.email,
-          usuario: JW.usuarioLogado.usuario,
-          remetenteTipo: JW.usuarioLogado.tipo || "Cliente",
-          mensagem: msg
-        });
-        JW.setTypingFirebase(JW.usuarioLogado.email, false);
-        if (campo) campo.value = "";
-        JW.toast(resultadoFirebase.message || "Mensagem enviada.", "success");
-      } catch (error) {
-        JW.toast("Erro ao enviar mensagem: " + (error.message || error), "error");
-      } finally {
-        if (campo) campo.disabled = false;
-      }
-      return;
-    }
     try {
-      var resultado = await JW.chamarGoogleScript("enviarMensagemChatV3", {
+      var resultado = await JW.enviarMensagemFirebase({
         email: JW.usuarioLogado.email,
         usuario: JW.usuarioLogado.usuario,
         remetenteTipo: JW.usuarioLogado.tipo || "Cliente",
@@ -4157,6 +4234,7 @@
       if (hist) hist.innerHTML = JW.renderMensagensChat((conversa && conversa.mensagens) || []);
       JW.scrollChatParaFinal("chatHistoryCliente");
       JW.toast(resultado && resultado.message ? resultado.message : "Mensagem enviada.", resultado && resultado.success ? "success" : "error");
+      JW.iniciarPollingConversaCliente("chatHistoryCliente");
     } catch (error) {
       JW.toast("Erro ao enviar mensagem: " + (error.message || error), "error");
     } finally {
@@ -4183,11 +4261,6 @@
   JW.enviarImagemChat = function(contexto, input) {
     var arquivo = input && input.files && input.files[0];
     if (!arquivo) return;
-    if (!JW.iniciarFirebaseChat()) {
-      JW.toast("Imagem no chat depende do Firebase em tempo real.", "error");
-      input.value = "";
-      return;
-    }
     if (!/^image\//.test(arquivo.type || "")) {
       JW.toast("Selecione uma imagem.", "error");
       input.value = "";
@@ -4217,6 +4290,12 @@
           dadosBase.remetenteTipo = JW.usuarioLogado.tipo || "Cliente";
         }
         await JW.enviarMensagemFirebase(dadosBase);
+        if (contexto === "admin") {
+          JW.iniciarPollingConversaAdmin(JW.chatClienteAtual, "chatHistoryAdmin");
+          JW.atualizarListaConversasAdminPolling_("adminConversasFirebase", true);
+        } else {
+          JW.iniciarPollingConversaCliente("chatHistoryCliente");
+        }
         JW.toast("Imagem enviada.", "success");
       } catch (error) {
         JW.toast("Erro ao enviar imagem: " + (error.message || error), "error");
@@ -4274,10 +4353,6 @@
     }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
       JW.toast("Microfone nao suportado neste navegador.", "error");
-      return;
-    }
-    if (!JW.iniciarFirebaseChat()) {
-      JW.toast("Audio no chat depende do Firebase em tempo real.", "error");
       return;
     }
     var clienteEmail = JW.getClienteEmailChatContexto(contexto);
@@ -4383,6 +4458,12 @@
           dadosBase.remetenteTipo = JW.usuarioLogado.tipo || "Cliente";
         }
         await JW.enviarMensagemFirebase(dadosBase);
+        if (contexto === "admin") {
+          JW.iniciarPollingConversaAdmin(JW.chatClienteAtual, "chatHistoryAdmin");
+          JW.atualizarListaConversasAdminPolling_("adminConversasFirebase", true);
+        } else {
+          JW.iniciarPollingConversaCliente("chatHistoryCliente");
+        }
         JW.toast("Audio enviado.", "success");
       } catch (error) {
         JW.toast("Erro ao enviar audio: " + (error.message || error), "error");
@@ -4392,12 +4473,8 @@
   };
 
   JW.logout = function() {
-    ["adminConversasRef", "adminConversaRef", "clienteConversaRef", "clienteBadgeRef", "typingRef"].forEach(function(refName) {
-      if (JW.firebaseChat && JW.firebaseChat[refName]) {
-        JW.firebaseChat[refName].off();
-        JW.firebaseChat[refName] = null;
-      }
-    });
+    JW.pararTodosPollingsChat_();
+    JW.chatClienteAtual = "";
     JW.usuarioLogado = null;
     document.body.classList.remove("logged-in");
     document.body.classList.remove("admin-mode");

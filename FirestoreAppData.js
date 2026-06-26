@@ -81,7 +81,7 @@ var JW_FIRESTORE_APP_DATA_CONFIG = {
     collection: "chat_messages",
     idFields: ["ID", "ClienteEmail", "RemetenteEmail"],
     fallbackPrefix: "CHAT",
-    headers: ["ID", "DataHora", "ClienteEmail", "ClienteNome", "RemetenteEmail", "RemetenteNome", "RemetenteTipo", "Mensagem", "LidaCliente", "LidaAdmin"]
+    headers: ["ID", "DataHora", "ClienteEmail", "ClienteNome", "RemetenteEmail", "RemetenteNome", "RemetenteTipo", "Mensagem", "LidaCliente", "LidaAdmin", "Tipo", "AudioDataUrl", "ImagemDataUrl", "MimeType", "Duracao", "Timestamp"]
   },
   Manuais: {
     collection: "manuals",
@@ -185,10 +185,6 @@ function createFirestoreSheetAdapter_(config) {
     if (state.loaded) return;
 
     var docs = listFirestoreCollectionRecords_(state.config.collection);
-    if (!docs.length) {
-      bootstrapFirestoreCollectionFromSheet_(state.config);
-      docs = listFirestoreCollectionRecords_(state.config.collection);
-    }
 
     state.records = docs.map(function(doc) {
       return buildFirestoreSheetRecord_(state.config, doc);
@@ -478,47 +474,6 @@ function clearFirestoreSheetData_(sheetName) {
   }
 
   return { success: true, deleted: deleted };
-}
-
-function bootstrapFirestoreCollectionFromSheet_(config) {
-  var spreadsheet;
-  try {
-    spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  } catch (error) {
-    return { success: false, message: error.toString() };
-  }
-
-  if (!spreadsheet) return { success: false, message: "Planilha ativa indisponivel." };
-
-  var nativeSheet = spreadsheet.getSheetByName(config.sheetName);
-  if (!nativeSheet) return { success: true, migrated: 0, skipped: true };
-
-  var values = nativeSheet.getDataRange().getValues();
-  if (!values || values.length <= 1) return { success: true, migrated: 0, skipped: true };
-
-  var headers = values[0] && values[0].length ? normalizeSheetHeaderArray_(values[0]) : config.headers.slice();
-  var writes = [];
-  var usedDocumentIds = {};
-
-  for (var rowIndex = 1; rowIndex < values.length; rowIndex++) {
-    var row = normalizeRowLength_(values[rowIndex], headers.length);
-    if (isEmptySheetRow_(row)) continue;
-
-    var docId = buildAdapterDocumentId_(config, row, rowIndex + 1, "", usedDocumentIds, headers);
-    var payload = buildAdapterDocumentPayload_(config, headers, row, rowIndex + 1, docId, null);
-    writes.push(buildFirestoreSetWrite_(config.collection, docId, payload));
-  }
-
-  if (!writes.length) return { success: true, migrated: 0, skipped: true };
-
-  var batches = splitFirestoreWrites_(writes, 200);
-  var migrated = 0;
-  for (var i = 0; i < batches.length; i++) {
-    var response = firestoreCommitWrites_(batches[i]);
-    migrated += (response.writeResults || []).length;
-  }
-
-  return { success: true, migrated: migrated };
 }
 
 function buildFirestoreSheetRecord_(config, document) {

@@ -20,6 +20,8 @@ var JW_FIRESTORE_MIGRATION_SHEETS = [
   { sheetName: "CobrancasClientes", collection: "customer_charges", idFields: ["ID"], fallbackPrefix: "COB" }
 ];
 
+var JW_LEGACY_CHAT_REALTIME_DATABASE_URL = "https://jwpiscinas-default-rtdb.firebaseio.com";
+
 function listarAbasJwParaMigracaoFirebase() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   var summary = [];
@@ -364,4 +366,138 @@ function getMigrationMaxRows_(options) {
 
   var parsed = parseInt(options.maxRows, 10);
   return isNaN(parsed) || parsed <= 0 ? 0 : parsed;
+}
+
+function migrarChatRealtimeParaFirestore(opcoes) {
+  opcoes = opcoes || {};
+
+  try {
+    if (typeof shouldUseFirebaseAppData_ !== "function" || !shouldUseFirebaseAppData_()) {
+      return {
+        success: false,
+        message: "Firestore ainda nao esta habilitado para a base principal."
+      };
+    }
+
+    var mensagensLegadas = buscarChatRealtimeLegado_("messages");
+    if (!mensagensLegadas || typeof mensagensLegadas !== "object") {
+      return {
+        success: true,
+        imported: 0,
+        skipped: 0,
+        message: "Nenhuma mensagem legada encontrada no Realtime Database."
+      };
+    }
+
+    var config = JW_FIRESTORE_APP_DATA_CONFIG.MensagensChat;
+    var headers = config.headers.slice();
+    var existentes = {};
+    var docsAtuais = listFirestoreCollectionRecords_(config.collection);
+    for (var i = 0; i < docsAtuais.length; i++) {
+      var docIdAtual = extractFirestoreDocumentId_(docsAtuais[i] && docsAtuais[i].name);
+      if (docIdAtual) existentes[docIdAtual] = true;
+    }
+
+    var writes = [];
+    var imported = 0;
+    var skipped = 0;
+
+    for (var conversaId in mensagensLegadas) {
+      if (!mensagensLegadas.hasOwnProperty(conversaId)) continue;
+      var mensagensConversa = mensagensLegadas[conversaId] || {};
+
+      for (var mensagemId in mensagensConversa) {
+        if (!mensagensConversa.hasOwnProperty(mensagemId)) continue;
+        if (existentes[mensagemId]) {
+          skipped++;
+          continue;
+        }
+
+        var item = mensagensConversa[mensagemId] || {};
+        var remetenteTipo = valorTextoMigracaoChat_(item.remetenteTipo) || "Cliente";
+        var clienteEmail = valorTextoMigracaoChat_(item.clienteEmail).toLowerCase();
+        var remetenteEmail = valorTextoMigracaoChat_(item.remetenteEmail).toLowerCase();
+        var timestamp = parseInt(item.timestamp, 10);
+        if (isNaN(timestamp)) timestamp = Date.now();
+        var dataHora = valorTextoMigracaoChat_(item.dataHora) || new Date(timestamp).toLocaleString("pt-BR");
+        var tipoMensagem = valorTextoMigracaoChat_(item.tipo).toLowerCase() || "texto";
+        var row = [
+          mensagemId,
+          dataHora,
+          clienteEmail,
+          valorTextoMigracaoChat_(item.clienteNome),
+          remetenteEmail,
+          valorTextoMigracaoChat_(item.remetenteNome),
+          remetenteTipo,
+          valorTextoMigracaoChat_(item.mensagem),
+          "Sim",
+          "Sim",
+          tipoMensagem,
+          valorTextoMigracaoChat_(item.audioDataUrl),
+          valorTextoMigracaoChat_(item.imagemDataUrl),
+          valorTextoMigracaoChat_(item.mimeType),
+          valorTextoMigracaoChat_(item.duracao),
+          timestamp
+        ];
+        var payload = buildAdapterDocumentPayload_(config, headers, row, imported + 2, mensagemId, null);
+        writes.push(buildFirestoreSetWrite_(config.collection, mensagemId, payload));
+        existentes[mensagemId] = true;
+        imported++;
+      }
+    }
+
+    if (!writes.length) {
+      return {
+        success: true,
+        imported: 0,
+        skipped: skipped,
+        message: "Nenhuma nova mensagem do chat precisava ser migrada."
+      };
+    }
+
+    var batches = splitFirestoreWrites_(writes, 200);
+    var escritos = 0;
+    for (var j = 0; j < batches.length; j++) {
+      var response = firestoreCommitWrites_(batches[j]);
+      escritos += (response.writeResults || []).length;
+    }
+
+    if (JW_FIRESTORE_SHEET_STATE_CACHE.MensagensChat) {
+      JW_FIRESTORE_SHEET_STATE_CACHE.MensagensChat.loaded = false;
+      JW_FIRESTORE_SHEET_STATE_CACHE.MensagensChat.records = [];
+    }
+
+    return {
+      success: true,
+      imported: imported,
+      written: escritos,
+      skipped: skipped,
+      message: "Chat legado migrado do Realtime Database para o Firestore."
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: "Erro ao migrar chat legado: " + error.toString()
+    };
+  }
+}
+
+function buscarChatRealtimeLegado_(path) {
+  var url = JW_LEGACY_CHAT_REALTIME_DATABASE_URL.replace(/\/+$/, "") + "/jwChat/" + String(path || "").replace(/^\/+/, "") + ".json";
+  var response = UrlFetchApp.fetch(url, {
+    method: "get",
+    muteHttpExceptions: true
+  });
+  var statusCode = response.getResponseCode();
+  if (statusCode === 404) return null;
+  if (statusCode < 200 || statusCode >= 300) {
+    throw new Error("Realtime Database HTTP " + statusCode + ": " + response.getContentText());
+  }
+  var body = response.getContentText() || "null";
+  return JSON.parse(body);
+}
+
+function valorTextoMigracaoChat_(valor) {
+  if (valor === undefined || valor === null) return "";
+  return String(valor);
 }

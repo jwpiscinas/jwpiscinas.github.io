@@ -11,8 +11,8 @@
             <i class="fas fa-download"></i>
             <span class="d-none d-md-inline">Instalar</span>
           </button>
-          <button id="btnOpenAmbientMusic" class="btn btn-secondary btn-sm ambient-music-open-button" type="button" onclick="JW.abrirMusicaAmbiente()" title="Abrir musica ambiente">
-            <i class="fas fa-music"></i>
+          <button id="btnOpenAmbientMusic" class="btn btn-secondary btn-sm ambient-music-open-button" type="button" onclick="JW.togglePainelMusicaAmbiente()" title="Controles da musica ambiente">
+            <i id="ambientMusicHeaderIcon" class="fas fa-volume-high"></i>
             <span class="ambient-music-open-label">Musica</span>
           </button>
           <div class="notifications-panel">
@@ -55,11 +55,28 @@
     <div class="ambient-music-header">
       <div>
         <strong>Musica ambiente</strong>
-        <small>Jazz e bossa nova</small>
+        <small id="ambientMusicStatus">Preparando audio ambiente...</small>
       </div>
-      <button type="button" onclick="JW.fecharMusicaAmbiente()" title="Parar e fechar musica" aria-label="Parar e fechar musica">&times;</button>
+      <button type="button" onclick="JW.fecharMusicaAmbiente()" title="Fechar controles de musica" aria-label="Fechar controles de musica">&times;</button>
     </div>
-    <div id="ambientMusicPlayer" class="ambient-music-player"></div>
-    <p class="ambient-music-hint">Pressione play no video para ouvir durante o uso.</p>
+    <div class="ambient-music-body">
+      <div class="ambient-music-controls">
+        <button type="button" class="ambient-music-control-btn" onclick="JW.diminuirVolumeMusicaAmbiente()" title="Diminuir volume" aria-label="Diminuir volume">
+          <i class="fas fa-minus"></i>
+        </button>
+        <input id="ambientMusicVolumeRange" class="ambient-music-volume-range" type="range" min="0" max="100" step="5" value="35" oninput="JW.definirVolumeMusicaAmbiente(this.value / 100)" aria-label="Volume da musica ambiente">
+        <button type="button" class="ambient-music-control-btn" onclick="JW.aumentarVolumeMusicaAmbiente()" title="Aumentar volume" aria-label="Aumentar volume">
+          <i class="fas fa-plus"></i>
+        </button>
+      </div>
+      <div class="ambient-music-meta">
+        <button id="ambientMusicMuteBtn" type="button" class="btn btn-secondary btn-sm" onclick="JW.toggleMuteMusicaAmbiente()">
+          <i id="ambientMusicMuteIcon" class="fas fa-volume-high"></i>
+          <span id="ambientMusicMuteLabel">Mutar</span>
+        </button>
+        <span id="ambientMusicVolumeLabel">35%</span>
+      </div>
+      <p class="ambient-music-hint">A musica toca em segundo plano e voce pode ajustar o volume quando quiser.</p>
+    </div>
   </aside>
 </div>
