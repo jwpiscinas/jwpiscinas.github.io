@@ -15,6 +15,24 @@
   JW.financeiroBusca = JW.financeiroBusca || "";
   JW.navLoading = false;
   JW.navSeq = 0;
+  JW.activeTab = "";
+  JW.activeTabKey = "";
+  JW.dataCache = {};
+  JW.dataCacheMeta = {};
+  JW.dataCacheInflight = {};
+  JW.tabHtmlCache = {};
+  JW.backgroundTasksStarted = false;
+  JW.cacheTtlMs = {
+    resumoCliente: 120000,
+    historico: 120000,
+    produtos: 180000,
+    manuais: 180000,
+    pendencias: 60000,
+    financeiro: 60000,
+    relatorios: 60000,
+    historicoNotificacoesAdmin: 60000,
+    telefonesAutorizados: 60000
+  };
   JW.produtoFiltro = "Todos";
   JW.manualFiltro = "Todos";
   JW.chatClienteAtual = "";
@@ -667,14 +685,148 @@
     });
   };
 
+  JW.getTabCacheKey_ = function(tab) {
+    return String(tab || "inicio");
+  };
+
+  JW.getCacheValido_ = function(chave, ttlMs) {
+    var meta = JW.dataCacheMeta[chave];
+    if (!meta || !Object.prototype.hasOwnProperty.call(JW.dataCache, chave)) return undefined;
+    if (ttlMs && Date.now() - meta.timestamp > ttlMs) return undefined;
+    return JW.dataCache[chave];
+  };
+
+  JW.temCacheValido_ = function(chave, ttlMs) {
+    return JW.getCacheValido_(chave, ttlMs) !== undefined;
+  };
+
+  JW.setCache_ = function(chave, valor) {
+    JW.dataCache[chave] = valor;
+    JW.dataCacheMeta[chave] = { timestamp: Date.now() };
+    return valor;
+  };
+
+  JW.invalidateCache_ = function(prefixo) {
+    var prefixoTexto = String(prefixo || "");
+    var chaves = Object.keys(JW.dataCache);
+    for (var i = 0; i < chaves.length; i++) {
+      if (!prefixoTexto || chaves[i].indexOf(prefixoTexto) === 0) delete JW.dataCache[chaves[i]];
+    }
+    chaves = Object.keys(JW.dataCacheMeta);
+    for (var j = 0; j < chaves.length; j++) {
+      if (!prefixoTexto || chaves[j].indexOf(prefixoTexto) === 0) delete JW.dataCacheMeta[chaves[j]];
+    }
+    chaves = Object.keys(JW.dataCacheInflight);
+    for (var k = 0; k < chaves.length; k++) {
+      if (!prefixoTexto || chaves[k].indexOf(prefixoTexto) === 0) delete JW.dataCacheInflight[chaves[k]];
+    }
+  };
+
+  JW.invalidateTabHtmlCache_ = function(prefixo) {
+    var prefixoTexto = String(prefixo || "");
+    var chaves = Object.keys(JW.tabHtmlCache);
+    for (var i = 0; i < chaves.length; i++) {
+      if (!prefixoTexto || chaves[i] === prefixoTexto || chaves[i].indexOf(prefixoTexto + "?") === 0) {
+        delete JW.tabHtmlCache[chaves[i]];
+      }
+    }
+  };
+
+  JW.resetNavigationCaches_ = function() {
+    JW.dataCache = {};
+    JW.dataCacheMeta = {};
+    JW.dataCacheInflight = {};
+    JW.tabHtmlCache = {};
+    JW.activeTab = "";
+    JW.activeTabKey = "";
+    JW.backgroundTasksStarted = false;
+  };
+
+  JW.fetchComCache_ = function(chave, ttlMs, loader, opcoes) {
+    opcoes = opcoes || {};
+    if (!opcoes.force) {
+      var cached = JW.getCacheValido_(chave, ttlMs);
+      if (cached !== undefined) return Promise.resolve(cached);
+      if (JW.dataCacheInflight[chave]) return JW.dataCacheInflight[chave];
+    }
+
+    var promise = Promise.resolve()
+      .then(loader)
+      .then(function(valor) {
+        JW.setCache_(chave, valor);
+        delete JW.dataCacheInflight[chave];
+        return valor;
+      })
+      .catch(function(error) {
+        delete JW.dataCacheInflight[chave];
+        throw error;
+      });
+
+    JW.dataCacheInflight[chave] = promise;
+    return promise;
+  };
+
+  JW.invalidateModuleCaches_ = function(modulos) {
+    var lista = Array.isArray(modulos) ? modulos : [modulos];
+    var tabsPorModulo = {
+      resumoCliente: ["inicio"],
+      historico: ["historico", "inicio"],
+      produtos: ["produtos", "comunicacao", "mensagens", "admin"],
+      manuais: ["manuais"],
+      pendencias: ["ordem-servico", "relatorios"],
+      financeiro: ["financeiro", "relatorios"],
+      relatorios: ["relatorios", "inicio"],
+      historicoNotificacoesAdmin: ["comunicacao", "mensagens", "admin"],
+      telefonesAutorizados: ["comunicacao", "mensagens", "admin"]
+    };
+
+    for (var i = 0; i < lista.length; i++) {
+      var modulo = String(lista[i] || "");
+      if (!modulo) continue;
+      JW.invalidateCache_(modulo);
+      var tabs = tabsPorModulo[modulo] || [];
+      for (var j = 0; j < tabs.length; j++) JW.invalidateTabHtmlCache_(tabs[j]);
+    }
+  };
+
+  JW.temDadosAquecidosParaAba_ = function(tabBase) {
+    var email = JW.usuarioLogado && JW.usuarioLogado.email ? JW.usuarioLogado.email : "";
+    if (tabBase === "solicitar-orcamento" || tabBase === "chat") return true;
+    if (tabBase === "inicio") {
+      return JW.isAdmin()
+        ? JW.temCacheValido_("relatorios", JW.cacheTtlMs.relatorios) || JW.temCacheValido_("financeiro", JW.cacheTtlMs.financeiro)
+        : JW.temCacheValido_("resumoCliente:" + email, JW.cacheTtlMs.resumoCliente);
+    }
+    if (tabBase === "produtos") return JW.temCacheValido_("produtos", JW.cacheTtlMs.produtos);
+    if (tabBase === "historico") return JW.temCacheValido_("historico:" + email, JW.cacheTtlMs.historico);
+    if (tabBase === "manuais") return JW.temCacheValido_("manuais", JW.cacheTtlMs.manuais);
+    if (tabBase === "ordem-servico") return JW.temCacheValido_("pendencias", JW.cacheTtlMs.pendencias);
+    if (tabBase === "financeiro") return JW.temCacheValido_("financeiro", JW.cacheTtlMs.financeiro);
+    if (tabBase === "relatorios") return JW.temCacheValido_("relatorios", JW.cacheTtlMs.relatorios);
+    if (tabBase === "comunicacao" || tabBase === "mensagens" || tabBase === "admin") {
+      return JW.temCacheValido_("produtos", JW.cacheTtlMs.produtos) &&
+        JW.temCacheValido_("historicoNotificacoesAdmin", JW.cacheTtlMs.historicoNotificacoesAdmin) &&
+        JW.temCacheValido_("telefonesAutorizados", JW.cacheTtlMs.telefonesAutorizados);
+    }
+    return false;
+  };
+
+  JW.renderMain = function(html, opcoes) {
+    var main = document.getElementById("mainContent");
+    if (main) main.innerHTML = html;
+    opcoes = opcoes || {};
+    if (opcoes.cache === false) return;
+    if (JW.activeTabKey) JW.tabHtmlCache[JW.activeTabKey] = html;
+  };
+
+  JW.syncActiveTabSnapshot_ = function() {
+    var main = document.getElementById("mainContent");
+    if (main && JW.activeTabKey) JW.tabHtmlCache[JW.activeTabKey] = main.innerHTML;
+  };
+
   JW.setTitulo = function(titulo) {
     var el = document.getElementById("currentPageTitle");
     if (el) el.textContent = titulo || "Início";
-  };
-
-  JW.renderMain = function(html) {
-    var main = document.getElementById("mainContent");
-    if (main) main.innerHTML = html;
   };
 
   JW.renderCarregando = function(texto) {
@@ -682,7 +834,8 @@
       '<div class="card text-center">' +
         '<div class="loading-spinner-modern" style="margin:20px auto;"></div>' +
         '<p class="text-muted">' + JW.escapeHTML(texto || "Carregando...") + '</p>' +
-      '</div>'
+      '</div>',
+      { cache: false }
     );
   };
 
@@ -954,12 +1107,96 @@
     }
   };
 
+  JW.obterResumoCliente_ = function(opcoes) {
+    var email = JW.usuarioLogado && JW.usuarioLogado.email ? JW.usuarioLogado.email : "";
+    if (!email) return Promise.resolve({});
+    return JW.fetchComCache_("resumoCliente:" + email, JW.cacheTtlMs.resumoCliente, function() {
+      return JW.chamarGoogleScript("diagnosticoSistemaV3", email);
+    }, opcoes);
+  };
+
+  JW.obterHistorico_ = function(opcoes) {
+    var email = JW.usuarioLogado && JW.usuarioLogado.email ? JW.usuarioLogado.email : "";
+    if (!email) return Promise.resolve({ itens: [] });
+    return JW.fetchComCache_("historico:" + email, JW.cacheTtlMs.historico, function() {
+      return JW.chamarGoogleScript("getHistoricoCompletoUsuarioV3", email);
+    }, opcoes);
+  };
+
+  JW.obterProdutos_ = function(opcoes) {
+    return JW.fetchComCache_("produtos", JW.cacheTtlMs.produtos, function() {
+      return JW.chamarGoogleScript("getProdutos");
+    }, opcoes);
+  };
+
+  JW.obterManuais_ = function(opcoes) {
+    return JW.fetchComCache_("manuais", JW.cacheTtlMs.manuais, function() {
+      return JW.chamarGoogleScript("getManuais");
+    }, opcoes);
+  };
+
+  JW.obterPendencias_ = function(opcoes) {
+    return JW.fetchComCache_("pendencias", JW.cacheTtlMs.pendencias, function() {
+      return JW.chamarGoogleScript("getCentralAdminV3");
+    }, opcoes);
+  };
+
+  JW.obterRelatorios_ = function(opcoes) {
+    return JW.fetchComCache_("relatorios", JW.cacheTtlMs.relatorios, function() {
+      return JW.chamarGoogleScript("getRelatoriosAdminV3");
+    }, opcoes);
+  };
+
+  JW.obterFinanceiro_ = function(opcoes) {
+    return JW.fetchComCache_("financeiro", JW.cacheTtlMs.financeiro, function() {
+      return JW.chamarGoogleScript("getFinanceiroAdminV3");
+    }, opcoes);
+  };
+
+  JW.obterHistoricoNotificacoesAdmin_ = function(opcoes) {
+    return JW.fetchComCache_("historicoNotificacoesAdmin", JW.cacheTtlMs.historicoNotificacoesAdmin, function() {
+      return JW.chamarGoogleScript("getAllNotificacoesV3");
+    }, opcoes);
+  };
+
+  JW.obterTelefonesAutorizados_ = function(opcoes) {
+    return JW.fetchComCache_("telefonesAutorizados", JW.cacheTtlMs.telefonesAutorizados, function() {
+      return JW.chamarGoogleScript("listarTelefonesAutorizados").catch(function(error) {
+        return { success: false, message: error.message || error, telefones: [] };
+      });
+    }, opcoes);
+  };
+
+  JW.precarregarAbas_ = function() {
+    if (JW.backgroundTasksStarted || !JW.usuarioLogado) return;
+    JW.backgroundTasksStarted = true;
+
+    window.setTimeout(async function() {
+      try {
+        if (JW.isAdmin()) {
+          await JW.obterProdutos_();
+          await JW.obterManuais_();
+          await JW.obterPendencias_();
+          await JW.obterFinanceiro_();
+          await JW.obterHistoricoNotificacoesAdmin_();
+          await JW.obterTelefonesAutorizados_();
+        } else {
+          await JW.obterResumoCliente_();
+          await JW.obterProdutos_();
+          await JW.obterManuais_();
+          await JW.obterHistorico_();
+        }
+      } catch (error) {}
+    }, 180);
+  };
+
   JW.entrarNoSistema = function() {
     var loginScreen = document.getElementById("loginScreen");
     var mainApp = document.getElementById("mainApp");
     var sidebarUserName = document.getElementById("sidebarUserName");
     var sidebarUserRole = document.getElementById("sidebarUserRole");
 
+    JW.resetNavigationCaches_();
     document.body.classList.add("logged-in");
     document.body.classList.toggle("admin-mode", JW.isAdmin());
     if (loginScreen) loginScreen.classList.add("d-none");
@@ -976,6 +1213,7 @@
     JW.fecharNotificacoes();
     JW.inicializarMusicaAmbiente();
     JW.abrirTab(JW.isAdmin() ? "relatorios" : "inicio");
+    JW.precarregarAbas_();
   };
 
   JW.lerStorageMusicaAmbiente_ = function(chave, fallback) {
@@ -1328,32 +1566,45 @@
     }
   };
 
-  JW.abrirTab = async function(tab) {
+  JW.abrirTab = async function(tab, opcoes) {
+    opcoes = opcoes || {};
     if (JW.navLoading) return;
     var partes = String(tab || "inicio").split("?");
     var tabBase = partes[0];
     var query = partes[1] || "";
+    var tabKey = JW.getTabCacheKey_(tab);
     var navSeq = ++JW.navSeq;
+    var htmlCache = JW.tabHtmlCache[tabKey];
+    var tinhaSnapshot = !!htmlCache;
     JW.navLoading = true;
+    JW.activeTab = tabBase;
+    JW.activeTabKey = tabKey;
     document.body.classList.add("nav-busy");
     JW.fecharNotificacoes();
     JW.marcarMenuAtivo(tabBase);
-    JW.renderCarregando("Carregando conteudo...");
+    if (tinhaSnapshot) JW.renderMain(htmlCache);
+    else if (!JW.temDadosAquecidosParaAba_(tabBase)) JW.renderCarregando("Carregando conteudo...");
 
     try {
-      if (tabBase === "inicio") await JW.carregarInicio();
+      if (tabBase === "inicio") await JW.carregarInicio(opcoes);
       else if (tabBase === "solicitar-orcamento") JW.renderSolicitarOrcamento();
-      else if (tabBase === "produtos") await JW.carregarProdutos(JW.getQueryParam(query, "produto"));
-      else if (tabBase === "historico") await JW.carregarHistorico();
-      else if (tabBase === "manuais") await JW.carregarManuais();
-      else if (tabBase === "ordem-servico") await JW.carregarPendencias();
-      else if (tabBase === "financeiro") await JW.carregarFinanceiro();
-      else if (tabBase === "relatorios") await JW.carregarRelatorios();
+      else if (tabBase === "produtos") await JW.carregarProdutos(JW.getQueryParam(query, "produto"), opcoes);
+      else if (tabBase === "historico") await JW.carregarHistorico(opcoes);
+      else if (tabBase === "manuais") await JW.carregarManuais(opcoes);
+      else if (tabBase === "ordem-servico") await JW.carregarPendencias(opcoes);
+      else if (tabBase === "financeiro") await JW.carregarFinanceiro(opcoes);
+      else if (tabBase === "relatorios") await JW.carregarRelatorios(opcoes);
       else if (tabBase === "chat") await JW.carregarChatClientePagina();
-      else if (tabBase === "comunicacao" || tabBase === "mensagens" || tabBase === "admin") await JW.carregarMensagensDiretas();
+      else if (tabBase === "comunicacao" || tabBase === "mensagens" || tabBase === "admin") await JW.carregarMensagensDiretas(opcoes);
       else JW.renderMain('<div class="card"><h3>Modulo indisponivel</h3></div>');
     } catch (error) {
-      if (navSeq === JW.navSeq) JW.renderMain('<div class="card text-center"><h3>Erro ao carregar</h3><p style="color:red;">' + JW.escapeHTML(error.message || error) + '</p><button class="btn btn-primary" onclick="JW.abrirTab(' + JW.attrJs(tabBase) + ')">Tentar novamente</button></div>');
+      if (navSeq === JW.navSeq) {
+        if (tinhaSnapshot) {
+          JW.toast("Nao foi possivel atualizar esta aba agora. Mantivemos a ultima versao carregada.", "warning");
+        } else {
+          JW.renderMain('<div class="card text-center"><h3>Erro ao carregar</h3><p style="color:red;">' + JW.escapeHTML(error.message || error) + '</p><button class="btn btn-primary" onclick="JW.abrirTab(' + JW.attrJs(tabBase) + ')">Tentar novamente</button></div>', { cache: false });
+        }
+      }
     } finally {
       if (navSeq === JW.navSeq) {
         JW.navLoading = false;
@@ -1371,14 +1622,14 @@
     return "";
   };
 
-  JW.carregarInicio = async function() {
+  JW.carregarInicio = async function(opcoes) {
     if (JW.isAdmin()) {
-      await JW.carregarRelatorios();
+      await JW.carregarRelatorios(opcoes);
       return;
     } else {
       var resumoCliente = {};
       try {
-        resumoCliente = await JW.chamarGoogleScript("diagnosticoSistemaV3", JW.usuarioLogado.email);
+        resumoCliente = await JW.obterResumoCliente_(opcoes);
       } catch (errorResumo) {
         resumoCliente = {};
       }
@@ -1654,9 +1905,9 @@
     }
   };
 
-  JW.carregarHistorico = async function() {
+  JW.carregarHistorico = async function(opcoes) {
     JW.setTitulo("Historico");
-    var h = await JW.chamarGoogleScript("getHistoricoCompletoUsuarioV3", JW.usuarioLogado.email);
+    var h = await JW.obterHistorico_(opcoes);
     var itens = h && h.itens ? h.itens : [];
     JW.historicoItens = itens;
     JW.historicoFiltro = "Todos";
@@ -1695,6 +1946,7 @@
     card.classList.toggle("collapsed");
     var icon = card.querySelector(".history-toggle i");
     if (icon) icon.className = card.classList.contains("collapsed") ? "fas fa-chevron-down" : "fas fa-chevron-up";
+    JW.syncActiveTabSnapshot_();
   };
 
   JW.renderListaHistorico = function(itens) {
@@ -1731,13 +1983,13 @@
     return html + '</div>';
   };
 
-  JW.carregarProdutos = async function(produtoFoco) {
+  JW.carregarProdutos = async function(produtoFoco, opcoes) {
     JW.setTitulo(JW.lojaSuspensa ? "Loja suspensa" : "Produtos");
     if (JW.lojaSuspensa && !JW.isAdmin()) {
       JW.renderMain('<div class="card text-center"><h3><i class="fas fa-store-slash"></i> Loja temporariamente suspensa</h3><p class="text-muted">Este modulo esta indisponivel no momento.</p></div>');
       return;
     }
-    var produtos = await JW.chamarGoogleScript("getProdutos");
+    var produtos = await JW.obterProdutos_(opcoes);
     JW.produtosCache = produtos || [];
     JW.renderLojaProdutos(produtoFoco);
   };
@@ -1899,7 +2151,8 @@
       if (resultado && resultado.success) {
         JW.fecharModal("modalComprar");
         JW.toast("Compra realizada com sucesso.", "success");
-        await JW.carregarProdutos();
+        JW.invalidateModuleCaches_(["produtos", "pendencias", "relatorios", "historico", "resumoCliente", "financeiro"]);
+        await JW.carregarProdutos("", { force: true });
       } else {
         JW.toast(resultado && resultado.message ? resultado.message : "Nao foi possivel comprar.", "error");
       }
@@ -1949,7 +2202,10 @@
       var resultado = await JW.chamarGoogleScript("atualizarPrecoProdutoCampoV3", id, String(novoValor), campo);
       JW.esconderLoading();
       JW.toast(resultado && resultado.message ? resultado.message : "Preco atualizado.", resultado && resultado.success ? "success" : "error");
-      if (resultado && resultado.success) await JW.carregarProdutos();
+      if (resultado && resultado.success) {
+        JW.invalidateModuleCaches_(["produtos"]);
+        await JW.carregarProdutos("", { force: true });
+      }
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao atualizar preco: " + (error.message || error), "error");
@@ -1963,9 +2219,9 @@
     if (url) window.open(url, "_blank");
   };
 
-  JW.carregarManuais = async function() {
+  JW.carregarManuais = async function(opcoes) {
     JW.setTitulo("Manuais");
-    var manuais = await JW.chamarGoogleScript("getManuais");
+    var manuais = await JW.obterManuais_(opcoes);
     JW.manuaisCache = manuais || [];
     if (!JW.manuaisCache.length) {
       JW.renderMain('<div class="card"><p class="text-muted">Nenhum manual disponivel para os produtos da loja.</p></div>');
@@ -1997,14 +2253,14 @@
     JW.renderListaManuais();
   };
 
-  JW.carregarPendencias = async function() {
+  JW.carregarPendencias = async function(opcoes) {
     JW.setTitulo("Pendências");
     if (!JW.isAdmin()) {
       JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
       return;
     }
 
-    var c = await JW.chamarGoogleScript("getCentralAdminV3");
+    var c = await JW.obterPendencias_(opcoes);
     var orcamentos = (c && c.orcamentosPendentes) || [];
     var compras = (c && c.comprasPendentes) || [];
     JW.orcamentosPendentesCache = orcamentos;
@@ -2027,6 +2283,7 @@
     sec.classList.toggle("collapsed");
     var icon = sec.querySelector(".collapsible-header > i:last-child");
     if (icon) icon.className = sec.classList.contains("collapsed") ? "fas fa-chevron-down" : "fas fa-chevron-up";
+    JW.syncActiveTabSnapshot_();
   };
 
   JW.renderOrcamentosAdmin = function(lista) {
@@ -2135,7 +2392,10 @@
       var resultado = await JW.chamarGoogleScript("aprovarOrcamento", id, valorNormalizado, status, obs);
       JW.esconderLoading();
       JW.toast(resultado && resultado.message ? resultado.message : "Orçamento atualizado.", resultado && resultado.success ? "success" : "error");
-      if (resultado && resultado.success) await JW.carregarPendencias();
+      if (resultado && resultado.success) {
+        JW.invalidateModuleCaches_(["pendencias", "relatorios", "financeiro", "historico", "resumoCliente"]);
+        await JW.carregarPendencias({ force: true });
+      }
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao atualizar orçamento: " + (error.message || error), "error");
@@ -2252,22 +2512,25 @@
       var resultado = await JW.chamarGoogleScript("atualizarStatusCompraAdminV3", id, status, observacao || "");
       JW.esconderLoading();
       JW.toast(resultado && resultado.message ? resultado.message : "Compra atualizada.", resultado && resultado.success ? "success" : "error");
-      if (resultado && resultado.success) await JW.carregarPendencias();
+      if (resultado && resultado.success) {
+        JW.invalidateModuleCaches_(["pendencias", "relatorios", "financeiro", "historico", "resumoCliente", "produtos"]);
+        await JW.carregarPendencias({ force: true });
+      }
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao atualizar compra: " + (error.message || error), "error");
     }
   };
 
-  JW.carregarRelatorios = async function() {
+  JW.carregarRelatorios = async function(opcoes) {
     JW.setTitulo("Relatórios");
     if (!JW.isAdmin()) {
       JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
       return;
     }
 
-    var r = await JW.chamarGoogleScript("getRelatoriosAdminV3");
-    var financeiro = await JW.chamarGoogleScript("getFinanceiroAdminV3").catch(function() {
+    var r = await JW.obterRelatorios_(opcoes);
+    var financeiro = await JW.obterFinanceiro_(opcoes).catch(function() {
       return null;
     });
     JW.relatorioDados = r || {};
@@ -2537,14 +2800,14 @@
     return html;
   };
 
-  JW.carregarFinanceiro = async function() {
+  JW.carregarFinanceiro = async function(opcoes) {
     JW.setTitulo("Financeiro");
     if (!JW.isAdmin()) {
       JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
       return;
     }
 
-    var dados = await JW.chamarGoogleScript("getFinanceiroAdminV3");
+    var dados = await JW.obterFinanceiro_(opcoes);
     JW.financeiroDados = dados || {};
     if (!dados || !dados.success) {
       JW.renderMain('<div class="card"><h3>Financeiro indisponivel</h3><p class="text-muted">' + JW.escapeHTML((dados && dados.message) || "Nao foi possivel carregar o modulo.") + '</p></div>');
@@ -2988,7 +3251,8 @@
       JW.toast(resultado && resultado.message ? resultado.message : "Item salvo.", resultado && resultado.success ? "success" : "error");
       if (resultado && resultado.success) {
         JW.fecharModalSistema();
-        await JW.carregarFinanceiro();
+        JW.invalidateModuleCaches_(["financeiro", "relatorios", "produtos"]);
+        await JW.carregarFinanceiro({ force: true });
       }
     } catch (error) {
       JW.esconderLoading();
@@ -3020,7 +3284,8 @@
       JW.toast(resultado && resultado.message ? resultado.message : "Lancamento registrado.", resultado && resultado.success ? "success" : "error");
       if (resultado && resultado.success) {
         JW.fecharModalSistema();
-        await JW.carregarFinanceiro();
+        JW.invalidateModuleCaches_(["financeiro", "relatorios", "historico", "resumoCliente"]);
+        await JW.carregarFinanceiro({ force: true });
       }
     } catch (error) {
       JW.esconderLoading();
@@ -3049,7 +3314,8 @@
       JW.toast(resultado && resultado.message ? resultado.message : "Mensalidade salva.", resultado && resultado.success ? "success" : "error");
       if (resultado && resultado.success) {
         JW.fecharModalSistema();
-        await JW.carregarFinanceiro();
+        JW.invalidateModuleCaches_(["financeiro", "relatorios", "historico", "resumoCliente"]);
+        await JW.carregarFinanceiro({ force: true });
       }
     } catch (error) {
       JW.esconderLoading();
@@ -3066,7 +3332,8 @@
       JW.toast(resultado && resultado.message ? resultado.message : "Mensalidades processadas.", resultado && resultado.success ? "success" : "error");
       if (resultado && resultado.success) {
         JW.fecharModalSistema();
-        await JW.carregarFinanceiro();
+        JW.invalidateModuleCaches_(["financeiro", "relatorios", "historico", "resumoCliente"]);
+        await JW.carregarFinanceiro({ force: true });
       }
     } catch (error) {
       JW.esconderLoading();
@@ -3111,7 +3378,10 @@
       if (resultado && resultado.success && resultado.linkWhatsApp) {
         window.open(resultado.linkWhatsApp, "_blank");
       }
-      if (resultado && resultado.success) await JW.carregarFinanceiro();
+      if (resultado && resultado.success) {
+        JW.invalidateModuleCaches_(["financeiro", "relatorios", "historico", "resumoCliente"]);
+        await JW.carregarFinanceiro({ force: true });
+      }
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao gerar cobranca: " + (error.message || error), "error");
@@ -3150,7 +3420,10 @@
       var resultado = await JW.chamarGoogleScript("marcarCobrancaFinanceiroEnviadaV3", id);
       JW.esconderLoading();
       JW.toast(resultado && resultado.message ? resultado.message : "Cobranca atualizada.", resultado && resultado.success ? "success" : "error");
-      if (resultado && resultado.success) await JW.carregarFinanceiro();
+      if (resultado && resultado.success) {
+        JW.invalidateModuleCaches_(["financeiro", "relatorios"]);
+        await JW.carregarFinanceiro({ force: true });
+      }
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao atualizar cobranca: " + (error.message || error), "error");
@@ -3164,7 +3437,8 @@
       JW.esconderLoading();
       if (resultado && resultado.success) {
         JW.toast(resultado.message || "Cobranca enviada com sucesso.", "success");
-        await JW.carregarFinanceiro();
+        JW.invalidateModuleCaches_(["financeiro", "relatorios"]);
+        await JW.carregarFinanceiro({ force: true });
         return;
       }
 
@@ -3202,28 +3476,29 @@
       var resultado = await JW.chamarGoogleScript("atualizarStatusCobrancaFinanceiroV3", id, status, observacoes);
       JW.esconderLoading();
       JW.toast(resultado && resultado.message ? resultado.message : "Cobranca atualizada.", resultado && resultado.success ? "success" : "error");
-      if (resultado && resultado.success) await JW.carregarFinanceiro();
+      if (resultado && resultado.success) {
+        JW.invalidateModuleCaches_(["financeiro", "relatorios", "historico", "resumoCliente"]);
+        await JW.carregarFinanceiro({ force: true });
+      }
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao atualizar cobranca: " + (error.message || error), "error");
     }
   };
 
-  JW.carregarMensagensDiretas = async function() {
+  JW.carregarMensagensDiretas = async function(opcoes) {
     JW.setTitulo("Comunicacao");
     if (!JW.isAdmin()) {
       JW.renderMain('<div class="card"><p>Acesso restrito.</p></div>');
       return;
     }
 
-    var produtos = await JW.chamarGoogleScript("getProdutos");
+    var produtos = await JW.obterProdutos_(opcoes);
     JW.produtosCache = produtos || [];
-    var notif = await JW.chamarGoogleScript("getAllNotificacoesV3");
+    var notif = await JW.obterHistoricoNotificacoesAdmin_(opcoes);
     var historico = notif && notif.itens ? notif.itens : [];
     JW.historicoNotificacoesAdmin = historico;
-    var telefonesResp = await JW.chamarGoogleScript("listarTelefonesAutorizados").catch(function(error) {
-      return { success: false, message: error.message || error, telefones: [] };
-    });
+    var telefonesResp = await JW.obterTelefonesAutorizados_(opcoes);
     var options = '<option value="">Sem item vinculado</option>';
     for (var i = 0; i < JW.produtosCache.length; i++) {
       options += '<option value="' + JW.escapeAttr(JW.produtosCache[i].id) + '">' + JW.escapeHTML(JW.produtosCache[i].nome) + '</option>';
@@ -3261,6 +3536,7 @@
     var sections = document.querySelectorAll(".communication-section");
     for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle("active", tabs[i].getAttribute("data-section") === secao);
     for (var j = 0; j < sections.length; j++) sections[j].classList.toggle("active", sections[j].getAttribute("data-section") === secao);
+    JW.syncActiveTabSnapshot_();
   };
 
   JW.renderTelefonesAutorizadosAdmin = function(resp) {
@@ -3290,8 +3566,9 @@
     var destino = document.querySelector('[data-section="telefones"]');
     if (!destino) return;
     destino.innerHTML = '<div class="card"><p class="text-muted">Atualizando telefones...</p></div>';
-    var resp = await JW.chamarGoogleScript("listarTelefonesAutorizados");
+    var resp = await JW.obterTelefonesAutorizados_({ force: true });
     destino.innerHTML = JW.renderTelefonesAutorizadosAdmin(resp);
+    JW.syncActiveTabSnapshot_();
   };
 
   JW.adicionarTelefoneAdmin = async function() {
@@ -3306,7 +3583,10 @@
       var resultado = await JW.chamarGoogleScript("adicionarTelefoneAutorizado", telefone, nome);
       JW.esconderLoading();
       JW.toast(resultado && resultado.message ? resultado.message : "Telefone processado.", resultado && resultado.success ? "success" : "error");
-      if (resultado && resultado.success) await JW.recarregarTelefonesAdmin();
+      if (resultado && resultado.success) {
+        JW.invalidateModuleCaches_(["telefonesAutorizados"]);
+        await JW.recarregarTelefonesAdmin();
+      }
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao autorizar telefone: " + (error.message || error), "error");
@@ -3320,7 +3600,10 @@
       var resultado = await JW.chamarGoogleScript("removerTelefoneAutorizado", telefone);
       JW.esconderLoading();
       JW.toast(resultado && resultado.message ? resultado.message : "Telefone removido.", resultado && resultado.success ? "success" : "error");
-      if (resultado && resultado.success) await JW.recarregarTelefonesAdmin();
+      if (resultado && resultado.success) {
+        JW.invalidateModuleCaches_(["telefonesAutorizados"]);
+        await JW.recarregarTelefonesAdmin();
+      }
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao remover telefone: " + (error.message || error), "error");
@@ -3660,7 +3943,8 @@
       JW.esconderLoading();
       JW.toast(resultado && resultado.message ? resultado.message : "Notificacao enviada.", resultado && resultado.success ? "success" : "error");
       if (resultado && resultado.success) {
-        await JW.carregarMensagensDiretas();
+        JW.invalidateModuleCaches_(["historicoNotificacoesAdmin"]);
+        await JW.carregarMensagensDiretas({ force: true });
         await JW.carregarNotificacoes();
       }
     } catch (error) {
@@ -3725,7 +4009,10 @@
       var resultado = await JW.chamarGoogleScript("excluirNotificacaoV3", id);
       JW.esconderLoading();
       JW.toast(resultado && resultado.message ? resultado.message : "Notificacao removida.", resultado && resultado.success ? "success" : "error");
-      if (resultado && resultado.success) await JW.carregarMensagensDiretas();
+      if (resultado && resultado.success) {
+        JW.invalidateModuleCaches_(["historicoNotificacoesAdmin"]);
+        await JW.carregarMensagensDiretas({ force: true });
+      }
     } catch (error) {
       JW.esconderLoading();
       JW.toast("Erro ao remover notificacao: " + (error.message || error), "error");
@@ -4474,6 +4761,7 @@
 
   JW.logout = function() {
     JW.pararTodosPollingsChat_();
+    JW.resetNavigationCaches_();
     JW.chatClienteAtual = "";
     JW.usuarioLogado = null;
     document.body.classList.remove("logged-in");
